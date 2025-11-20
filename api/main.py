@@ -53,10 +53,17 @@ async def query(req: QueryRequest):
 		chunks = []
 		for d in docs:
 			meta = d.metadata or {}
+			page = meta.get("page")
+			try:
+				page = int(page) if page is not None else None
+			except (TypeError, ValueError):
+				page = None
+
 			chunks.append(
 				{
 					"title": meta.get("title", ""),
 					"url": meta.get("url", ""),
+					"page": page,
 					"snippet": _snippet(d.page_content),
 				}
 			)
@@ -72,11 +79,25 @@ async def query(req: QueryRequest):
 		meta = d.metadata or {}
 		title = meta.get("title", "")
 		url = meta.get("url", "")
-		key = (title, url, d.page_content)
+		page = meta.get("page")
+		try:
+			page = int(page) if page is not None else None
+		except (TypeError, ValueError):
+			page = None
+
+		key = (title, url, page, d.page_content)
 		if key in seen:
 			continue
 		seen.add(key)
-		contexts.append({"title": title, "url": url, "content": d.page_content})
+
+		contexts.append(
+			{
+				"title": title,
+				"url": url,
+				"page": page,
+				"content": d.page_content,
+			}
+		)
 
 	gen = Generator()
 	answer, citations = gen.answer(q, contexts)

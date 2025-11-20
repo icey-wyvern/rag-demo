@@ -44,6 +44,11 @@ async def ingest_seed_docs(db: Session) -> Tuple[int, int]:
 	the LangChain PGVector store. Also upserts rows in our 'documents'
 	table to prevent re-ingest on restarts.
 
+	Each chunk now carries:
+	- title
+	- url
+	- page       (1-based PDF page number)
+	- source_file (PDF filename as returned by pdf_loader)
 	Returns: (num_docs, num_chunks)
 	"""
 	total_docs = 0
@@ -66,24 +71,47 @@ async def ingest_seed_docs(db: Session) -> Tuple[int, int]:
 			# Turn pages -> paragraphs using our PDF loader
 			filename = url.rsplit("/", 1)[-1] or base_path
 			doc = load_pdf_from_bytes(name=filename, data=pdf_bytes)
-			paragraphs = [p["text"] for p in doc.get("paragraphs", [])]
+			paragraph_items = doc.get("paragraphs", [])
 
-			if not paragraphs:
+			if not paragraph_items:
 				continue
 
-			# Paragraphs -> token-aware chunks
-			ordered_chunks = make_chunks(paragraphs)  # List[(ord, text)]
-			if not ordered_chunks:
+			# Group paragraph texts by page so we can preserve page numbers in metadata
+			# paragraph_items is a list of dicts like { "page": int, "text": str }
+			page_buckets: Dict[int, List[str]] = {}
+			for item in paragraph_items:
+				page = int(item.get("page", 1))
+				text = item.get("text", "")
+				if not text:
+					continue
+				page_buckets.setdefault(page, []).append(text)
+
+			if not page_buckets:
 				continue
 
-			texts = [t for (_ord, t) in ordered_chunks]
-			metas = [
-				{
-					"title": title,
-					"url": url,
-				}
-				for (_ord, _t) in ordered_chunks
-			]
+			texts: List[str] = []
+			metas: List[Dict] = []
+
+			# For each page, create chunks and attach that page number in metadata
+			for page, para_texts in sorted(page_buckets.items(), key=lambda kv: kv[0]):
+				# Paragraphs on this page -> token-aware chunks
+				ordered_chunks = make_chunks(para_texts)  # List[(ord, text)]
+				if not ordered_chunks:
+					continue
+
+				for _ord, chunk_text in ordered_chunks:
+					texts.append(chunk_text)
+					metas.append(
+						{
+							"title": title,
+							"url": url,
+							"page": page,
+							"source_file": doc.get("path"),
+						}
+					)
+
+			if not texts:
+				continue
 
 			# Store in PGVector (embeddings handled by LangChain/OpenAI)
 			vstore.add_texts(texts=texts, metadatas=metas)

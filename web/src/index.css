@@ -21,12 +21,14 @@ body {
 	background: radial-gradient(circle at top, #0f172a 0, #020617 55%, #000 100%);
 }
 
+/* Root fills the viewport height so header + footer stay put */
 #root {
 	width: 100%;
 	max-width: 960px;
 	padding: 2.5rem 1.5rem 3rem;
 	display: flex;
 	justify-content: center;
+	height: 100vh;
 }
 
 #root > * {
@@ -38,11 +40,12 @@ body {
 .app-root {
 	display: flex;
 	flex-direction: column;
-	min-height: 70vh;
+	height: 100%;
+	min-height: 0;
 	gap: 1.5rem;
 	background: rgba(15, 23, 42, 0.9);
 	border-radius: 1.25rem;
-	padding: 2rem 2.25rem;
+	padding: 2rem 2.25rem 0.75rem;
 	box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
 	backdrop-filter: blur(16px);
 	border: 1px solid rgba(148, 163, 184, 0.25);
@@ -84,15 +87,31 @@ h1 span {
 	gap: 1rem;
 }
 
+/* Only this area scrolls now */
 .chat-messages {
 	flex: 1;
 	min-height: 160px;
-	max-height: 60vh;
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
 	gap: 1rem;
 	padding-right: 0.25rem;
+}
+
+/* Each message row controls left/right alignment */
+
+.chat-message-row {
+	display: flex;
+	width: 100%;
+}
+
+.chat-message-row-user {
+	justify-content: flex-end;
+}
+
+.chat-message-row-assistant,
+.chat-message-row-error {
+	justify-content: flex-start;
 }
 
 /* Scrollbar hint (non-essential) */
@@ -114,11 +133,23 @@ h1 span {
 	line-height: 1.6;
 	border: 1px solid rgba(148, 163, 184, 0.5);
 	background: rgba(15, 23, 42, 0.95);
+	max-width: 80%;
+	text-align: left;
 }
 
 .chat-bubble strong {
 	display: block;
 	margin-bottom: 0.35rem;
+}
+
+/* Tighter user bubble so it doesn’t look oversized */
+.chat-message-row-user .chat-bubble {
+	padding: 0.7rem 0.9rem;
+	line-height: 1.4;
+}
+
+.chat-message-row-user .chat-bubble strong {
+	margin-bottom: 0.2rem;
 }
 
 .chat-bubble-answer {
@@ -209,14 +240,26 @@ h1 span {
 	text-decoration: underline;
 }
 
+/* Seeded docs + example questions inside initial bubble */
+
+.seeded-list {
+	margin: 0.35rem 0 0.35rem 1.25rem;
+	padding: 0;
+}
+
+.seeded-examples-label {
+	margin: 0.75rem 0 0.25rem;
+	font-weight: 600;
+}
+
 /* Chat form at bottom */
 
 .chat-form {
 	margin-top: auto;
 	display: flex;
-	align-items: flex-end;
+	align-items: center;
 	gap: 0.75rem;
-	padding-top: 0.5rem;
+	padding-top: 0.75rem;
 	border-top: 1px solid rgba(31, 41, 55, 0.9);
 }
 
@@ -279,8 +322,8 @@ h1 span {
 
 button {
 	border-radius: 999px;
-	border: none;
-	padding: 0.7rem 1.5rem;
+	border: 1px solid transparent;
+	padding: 0.8rem 1.5rem;
 	font: inherit;
 	font-weight: 600;
 	display: inline-flex;
@@ -295,18 +338,24 @@ button {
 		transform 0.08s ease,
 		box-shadow 0.08s ease,
 		filter 0.08s ease,
+		border-color 0.12s ease,
 		opacity 0.1s ease;
 }
 
 button:hover {
 	transform: translateY(-1px);
-	filter: brightness(1.05);
-	box-shadow: 0 14px 40px rgba(34, 197, 94, 0.65);
+	filter: brightness(1.07);
+	border-color: #22c55e;
+	box-shadow:
+		0 0 0 1px rgba(34, 197, 94, 0.6),
+		0 14px 40px rgba(34, 197, 94, 0.65);
 }
 
 button:active {
 	transform: translateY(0);
-	box-shadow: 0 8px 28px rgba(34, 197, 94, 0.4);
+	box-shadow:
+		0 0 0 1px rgba(34, 197, 94, 0.5),
+		0 8px 28px rgba(34, 197, 94, 0.4);
 }
 
 button:disabled {
@@ -315,6 +364,7 @@ button:disabled {
 	box-shadow: 0 6px 18px rgba(148, 163, 184, 0.3);
 	background: rgba(55, 65, 81, 0.85);
 	color: #e5e7eb;
+	border-color: transparent;
 }
 
 /* Responsive tweaks */

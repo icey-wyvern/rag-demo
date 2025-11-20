@@ -14,15 +14,14 @@ DOCS_ROOT = Path("/app/docs")
 def _simple_title(name: str) -> str:
 	"""Turn 'highway-code.pdf' into 'Highway Code'."""
 	base = Path(name).stem
-	title = re.sub(r"[_\-]+", " ", base).strip()
-	if not title:
-		return "Untitled"
-	return title[:1].upper() + title[1:]
+	# Replace underscores/hyphens with spaces and title-case
+	base = re.sub(r"[_\-]+", " ", base).strip()
+	return base.title()
 
 
 def _split_paragraphs(text: str) -> List[str]:
 	"""
-	Convert a page's raw text into a list of paragraphs.
+	Split raw PDF page text into paragraph-like chunks.
 
 	Strategy:
 	- split on blank lines
@@ -57,7 +56,7 @@ def _split_paragraphs(text: str) -> List[str]:
 
 
 def list_pdf_paths(root: Path = DOCS_ROOT) -> List[Path]:
-	"""Return all PDF paths under /app/docs (non-recursive)."""
+	"""Return a sorted list of PDF file paths in the given root directory."""
 	if not root.exists():
 		return []
 	return sorted(

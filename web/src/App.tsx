@@ -7,11 +7,13 @@ interface Chunk {
 	title: string;
 	url: string;
 	snippet: string;
+	page?: number;
 }
 
 interface Citation {
 	title: string;
 	url: string;
+	page?: number;
 }
 
 interface QueryChunksResponse {
@@ -23,24 +25,41 @@ interface QueryGenerateResponse {
 	citations: Citation[];
 }
 
-const initialPlaceholder =
-	"Ask about coastal flooding, resilience, cyber security or net zero strategy…";
+type MessageKind = "system" | "answer" | "chunks";
+
+interface ChatMessage {
+	id: number;
+	role: "user" | "assistant" | "error";
+	kind?: MessageKind;
+	content?: string;
+	chunks?: Chunk[];
+	citations?: Citation[];
+}
+
+const initialPlaceholder = "Ask a question…";
+
+function buildSourceUrl(url: string, page?: number): string {
+	if (!url) {
+		return url;
+	}
+	return page ? `${url}#page=${page}` : url;
+}
+
+const initialMessages: ChatMessage[] = [
+	{
+		id: 1,
+		role: "assistant",
+		kind: "system",
+	},
+];
 
 function App() {
 	const [q, setQ] = useState("");
 	const [mode, setMode] = useState<Mode>("generate");
 	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
 
-	const [chunks, setChunks] = useState<Chunk[]>([]);
-	const [answer, setAnswer] = useState("");
-	const [citations, setCitations] = useState<Citation[]>([]);
-
-	const hasAnswer = mode === "generate" && answer.length > 0;
-	const hasChunks = chunks.length > 0;
-	const hasAnyResult = hasAnswer || hasChunks;
-
-	async function fetchChunks(question: string): Promise<void> {
+	async function fetchChunks(question: string): Promise<Chunk[]> {
 		const resp = await fetch("/api/query", {
 			method: "POST",
 			headers: {
@@ -56,10 +75,12 @@ function App() {
 		}
 
 		const data = (await resp.json()) as QueryChunksResponse;
-		setChunks(data.chunks ?? []);
+		return data.chunks ?? [];
 	}
 
-	async function fetchAnswer(question: string): Promise<void> {
+	async function fetchAnswer(
+		question: string,
+	): Promise<{ answer: string; citations: Citation[] }> {
 		const resp = await fetch("/api/query", {
 			method: "POST",
 			headers: {
@@ -75,8 +96,10 @@ function App() {
 		}
 
 		const data = (await resp.json()) as QueryGenerateResponse;
-		setAnswer(data.answer ?? "");
-		setCitations(data.citations ?? []);
+		return {
+			answer: data.answer ?? "",
+			citations: data.citations ?? [],
+		};
 	}
 
 	async function handleSubmit(e: FormEvent) {
@@ -86,25 +109,74 @@ function App() {
 			return;
 		}
 
+		// Push the user's message into the chat and clear the input
+		const userMessage: ChatMessage = {
+			id: Date.now(),
+			role: "user",
+			kind: undefined,
+			content: trimmed,
+		};
+		setMessages((prev) => [...prev, userMessage]);
+		setQ("");
+
 		setLoading(true);
-		setError(null);
-		setChunks([]);
-		setAnswer("");
-		setCitations([]);
 
 		try {
 			if (mode === "chunks") {
-				await fetchChunks(trimmed);
+				const retrievedChunks = await fetchChunks(trimmed);
+
+				if (retrievedChunks.length > 0) {
+					const chunksMessage: ChatMessage = {
+						id: Date.now() + 1,
+						role: "assistant",
+						kind: "chunks",
+						chunks: retrievedChunks,
+					};
+					setMessages((prev) => [...prev, chunksMessage]);
+				}
 			} else {
-				// Generative mode: show answer *and* retrieved chunks
-				await Promise.all([fetchChunks(trimmed), fetchAnswer(trimmed)]);
+				// Generative mode: show answer AND retrieved chunks
+				const [retrievedChunks, answerResult] = await Promise.all([
+					fetchChunks(trimmed),
+					fetchAnswer(trimmed),
+				]);
+
+				const assistantMessages: ChatMessage[] = [];
+
+				if (answerResult.answer) {
+					assistantMessages.push({
+						id: Date.now() + 1,
+						role: "assistant",
+						kind: "answer",
+						content: answerResult.answer,
+						citations: answerResult.citations,
+					});
+				}
+
+				if (retrievedChunks.length > 0) {
+					assistantMessages.push({
+						id: Date.now() + 2,
+						role: "assistant",
+						kind: "chunks",
+						chunks: retrievedChunks,
+					});
+				}
+
+				if (assistantMessages.length > 0) {
+					setMessages((prev) => [...prev, ...assistantMessages]);
+				}
 			}
 		} catch (err) {
 			const msg =
 				err instanceof Error
 					? err.message
 					: "Something went wrong talking to the API.";
-			setError(msg);
+			const errorMessage: ChatMessage = {
+				id: Date.now(),
+				role: "error",
+				content: msg,
+			};
+			setMessages((prev) => [...prev, errorMessage]);
 		} finally {
 			setLoading(false);
 		}
@@ -113,78 +185,148 @@ function App() {
 	return (
 		<main className="app-root">
 			<header>
-				<h1>
-					GOV.UK RAG <span>(Lite)</span>
-				</h1>
+				<h1>UK GVT RAG</h1>
 				<p className="subtitle">Ask a question about the seeded GOV.UK docs.</p>
 			</header>
 
 			<section className="chat-shell">
 				<div className="chat-messages">
-					{error && (
-						<div className="chat-bubble chat-bubble-error">
-							<strong>Error</strong>
-							<p>{error}</p>
-						</div>
-					)}
-
-					{hasAnswer && (
-						<div className="chat-bubble chat-bubble-answer">
-							<strong>Answer</strong>
-							<p>{answer}</p>
-
-							{citations.length > 0 && (
-								<div className="chat-citations">
-									<p className="chat-citations-label">Sources:</p>
-									<ul>
-										{citations.map((c, idx) => (
-											<li key={`${idx}-${c.title}-${c.url}`}>
-												{c.title || "Unknown source"}
-												{c.url && (
-													<>
-														{" "}
-														(<a
-															href={c.url}
-															target="_blank"
-															rel="noreferrer"
-														>
-															open
-														</a>
-														)
-													</>
-												)}
+					{messages.map((msg) => {
+						// Special system message: list seeded docs + example questions
+						if (msg.role === "assistant" && msg.kind === "system") {
+							return (
+								<div
+									key={msg.id}
+									className="chat-message-row chat-message-row-assistant"
+                                >
+									<div className="chat-bubble">
+										<strong>Assistant</strong>
+										<p>
+											You can ask questions about the following seeded GOV.UK
+											documents:
+										</p>
+										<ul className="seeded-list">
+											<li>National Risk Register 2025</li>
+											<li>The UK Government Resilience Framework</li>
+											<li>British Energy Security Strategy</li>
+											<li>Government Cyber Security Strategy 2022–2030</li>
+											<li>Net Zero Strategy: Build Back Greener</li>
+										</ul>
+										<p className="seeded-examples-label">Example questions:</p>
+										<ul className="seeded-list">
+											<li>
+												How does the National Risk Register describe the main
+												impacts of coastal flooding?
 											</li>
-										))}
-									</ul>
+											<li>
+												What are the key principles of resilience in the UK
+												Government Resilience Framework?
+											</li>
+											<li>
+												What are the main goals of the Net Zero Strategy: Build
+												Back Greener?
+											</li>
+										</ul>
+									</div>
 								</div>
-							)}
-						</div>
-					)}
+							);
+						}
 
-					{hasChunks && (
-						<div className="chat-bubble chat-bubble-chunks">
-							<strong>Retrieved chunks</strong>
-							<ul className="chunk-list">
-								{chunks.map((c, idx) => (
-									<li key={`${idx}-${c.title}-${c.url}`} className="chunk-item">
-										<div className="chunk-meta">
-											<span className="chunk-title">
-												{c.title || `Chunk ${idx + 1}`}
-											</span>
-											{c.url && (
-												<a href={c.url} target="_blank" rel="noreferrer">
-													Open document
-												</a>
-											)}
-										</div>
-										<p className="chunk-snippet">{c.snippet}</p>
-									</li>
-								))}
-							</ul>
-						</div>
-					)}
+						const rowClass = `chat-message-row chat-message-row-${msg.role}`;
 
-					{!hasAnyResult && !error && null}
+						const bubbleClasses = ["chat-bubble"];
+						if (msg.role === "assistant" && msg.kind === "chunks") {
+							bubbleClasses.push("chat-bubble-chunks");
+						}
+						if (msg.role === "assistant" && msg.kind === "answer") {
+							bubbleClasses.push("chat-bubble-answer");
+						}
+						if (msg.role === "error") {
+							bubbleClasses.push("chat-bubble-error");
+						}
+						const bubbleClassName = bubbleClasses.join(" ");
+
+						return (
+							<div key={msg.id} className={rowClass}>
+								{msg.role === "user" && (
+									<div className={bubbleClassName}>
+										<strong>You</strong>
+										<p>{msg.content}</p>
+									</div>
+								)}
+
+								{msg.role === "assistant" && msg.kind === "answer" && (
+									<div className={bubbleClassName}>
+										<strong>Answer</strong>
+										<p>{msg.content}</p>
+
+										{msg.citations && msg.citations.length > 0 && (
+											<div className="chat-citations">
+												<p className="chat-citations-label">Sources:</p>
+												<ul>
+													{msg.citations.map((c, idx) => (
+														<li key={`${idx}-${c.title}-${c.url}`}>
+															{c.title || "Unknown source"}
+															{c.url && (
+																<>
+																	{" "}
+																	(<a
+																		href={buildSourceUrl(c.url, c.page)}
+																		target="_blank"
+																		rel="noreferrer"
+																	>
+																		open
+																	</a>
+																	)
+																</>
+															)}
+														</li>
+													))}
+												</ul>
+											</div>
+										)}
+									</div>
+								)}
+
+								{msg.role === "assistant" && msg.kind === "chunks" && msg.chunks && (
+									<div className={bubbleClassName}>
+										<strong>Retrieved chunks</strong>
+										<ul className="chunk-list">
+											{msg.chunks.map((c, idx) => (
+												<li
+													key={`${idx}-${c.title}-${c.url}`}
+													className="chunk-item"
+												>
+													<div className="chunk-meta">
+														<span className="chunk-title">
+															{c.title || `Chunk ${idx + 1}`}
+														</span>
+														{c.url && (
+															<a
+																href={buildSourceUrl(c.url, c.page)}
+																target="_blank"
+																rel="noreferrer"
+															>
+																Open document
+															</a>
+														)}
+													</div>
+													<p className="chunk-snippet">{c.snippet}</p>
+												</li>
+											))}
+										</ul>
+									</div>
+								)}
+
+								{msg.role === "error" && (
+									<div className={bubbleClassName}>
+										<strong>Error</strong>
+										<p>{msg.content}</p>
+									</div>
+								)}
+							</div>
+						);
+					})}
 				</div>
 
 				<form className="chat-form" onSubmit={handleSubmit}>
