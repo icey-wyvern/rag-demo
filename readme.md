@@ -17,7 +17,6 @@ A simple demo for asking questions about a set of seeded GOV.UK documents using 
 3. From the project root, run:
 
    ```bash
-   cd /path/to/rag-demo
    docker-compose up --build
    ```
 
