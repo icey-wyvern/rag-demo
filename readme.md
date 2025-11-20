@@ -6,7 +6,11 @@ A simple demo for asking questions about a set of seeded GOV.UK documents using 
 
 ## Setup
 
-1. Clone this repository and open it in a terminal.
+1. Clone this repository and open it in a terminal:
+
+   ```bash
+   git clone https://github.com/icey-wyvern/rag-demo.git
+   ```
 
 2. In the project root, edit `.env` and add your OpenAI API key:
 
