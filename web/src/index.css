@@ -330,9 +330,8 @@ button {
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	background: linear-gradient(135deg, #22c55e, #16a34a);
-	color: #020617;
-	box-shadow: 0 10px 35px rgba(34, 197, 94, 0.45);
+	color: #dddddb;
+	background-color: #313131;
 	white-space: nowrap;
 	transition:
 		transform 0.08s ease,
@@ -343,27 +342,19 @@ button {
 }
 
 button:hover {
-	transform: translateY(-1px);
 	filter: brightness(1.07);
-	border-color: #22c55e;
-	box-shadow:
-		0 0 0 1px rgba(34, 197, 94, 0.6),
-		0 14px 40px rgba(34, 197, 94, 0.65);
+	background-color: #22c55e;
+	color: #020617;
 }
 
 button:active {
-	transform: translateY(0);
-	box-shadow:
-		0 0 0 1px rgba(34, 197, 94, 0.5),
-		0 8px 28px rgba(34, 197, 94, 0.4);
 }
 
 button:disabled {
+	color: #808080;
+	background-color: #313131;
 	opacity: 0.6;
 	cursor: default;
-	box-shadow: 0 6px 18px rgba(148, 163, 184, 0.3);
-	background: rgba(55, 65, 81, 0.85);
-	color: #e5e7eb;
 	border-color: transparent;
 }
 
