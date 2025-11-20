@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 type Mode = "chunks" | "generate";
 
@@ -58,6 +58,10 @@ function App() {
 	const [mode, setMode] = useState<Mode>("generate");
 	const [loading, setLoading] = useState(false);
 	const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+
+	// Refs for auto-scrolling
+	const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+	const lastUserMessageRef = useRef<HTMLDivElement | null>(null);
 
 	async function fetchChunks(question: string): Promise<Chunk[]> {
 		const resp = await fetch("/api/query", {
@@ -182,6 +186,31 @@ function App() {
 		}
 	}
 
+	// Auto-scroll when new assistant messages arrive.
+	// Scroll so the last user message row is near the top of the messages area,
+	// leaving a small margin so it doesn't disappear off-screen.
+	useEffect(() => {
+		if (!messages.length) return;
+
+		const last = messages[messages.length - 1];
+		if (last.role !== "assistant") {
+			// Only scroll once the assistant reply has arrived
+			return;
+		}
+
+		const container = messagesContainerRef.current;
+		const lastUser = lastUserMessageRef.current;
+		if (!container || !lastUser) return;
+
+		const margin = container.clientHeight * 0.1;
+		const targetTop = Math.max(lastUser.offsetTop - margin, 0);
+
+		container.scrollTo({
+			top: targetTop,
+			behavior: "smooth",
+		});
+	}, [messages]);
+
 	return (
 		<main className="app-root">
 			<header>
@@ -190,7 +219,7 @@ function App() {
 			</header>
 
 			<section className="chat-shell">
-				<div className="chat-messages">
+				<div className="chat-messages" ref={messagesContainerRef}>
 					{messages.map((msg) => {
 						// Special system message: list seeded docs + example questions
 						if (msg.role === "assistant" && msg.kind === "system") {
@@ -198,7 +227,7 @@ function App() {
 								<div
 									key={msg.id}
 									className="chat-message-row chat-message-row-assistant"
-                                >
+								>
 									<div className="chat-bubble">
 										<strong>Assistant</strong>
 										<p>
@@ -247,7 +276,16 @@ function App() {
 						const bubbleClassName = bubbleClasses.join(" ");
 
 						return (
-							<div key={msg.id} className={rowClass}>
+							<div
+								key={msg.id}
+								className={rowClass}
+								ref={(el) => {
+									// Track the last rendered user message element
+									if (msg.role === "user" && el) {
+										lastUserMessageRef.current = el;
+									}
+								}}
+							>
 								{msg.role === "user" && (
 									<div className={bubbleClassName}>
 										<strong>You</strong>
