@@ -20,16 +20,15 @@ A retrieval-augmented generation demo over a seeded set of GOV.UK strategy and r
 
 ## Local development
 
-1. Copy `.env.example` to `.env`.
-2. Set `OPENAI_API_KEY` in `.env`.
-3. Optional: place local copies of the seeded PDFs in [docs/README.md](/c:/osrs-py/gvt-rag/docs/README.md) to avoid network downloads during ingestion.
-4. Start the stack:
+1. Set `OPENAI_API_KEY` in `.env`.
+2. Optional: place local copies of the seeded PDFs in [docs/README.md](/c:/osrs-py/gvt-rag/docs/README.md) to avoid network downloads during ingestion.
+3. Start the stack:
 
 ```bash
 docker compose up --build
 ```
 
-5. Open `http://localhost:8080`.
+4. Open `http://localhost:8080`.
 
 `webapi` serves the UI immediately. `ingest` builds the retrieval corpus in the background. The UI polls corpus status and unlocks querying once ingestion is complete.
 
@@ -53,10 +52,11 @@ Run backend tests:
 python -m unittest discover -s tests
 ```
 
-Run frontend checks after installing web dependencies:
+Install frontend dependencies and run checks:
 
 ```bash
 cd web
+npm install
 npm run build
 npm run test
 ```
