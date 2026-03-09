@@ -1,77 +1,95 @@
-import tiktoken
+from __future__ import annotations
+
+from functools import lru_cache
 from typing import List, Tuple
 
-# Use OpenAI's tokenizer to size chunks for embeddings/generation
-_enc = tiktoken.get_encoding("cl100k_base")
+import tiktoken
+
+
+@lru_cache(maxsize=1)
+def _get_encoder():
+	try:
+		return tiktoken.get_encoding("cl100k_base")
+	except Exception:
+		return None
+
 
 def _tok_len(text: str) -> int:
-	return len(_enc.encode(text or ""))
+	enc = _get_encoder()
+	if enc is None:
+		return len((text or "").split())
+	return len(enc.encode(text or ""))
+
+
+def _tail_text(text: str, overlap_tokens: int) -> str:
+	if overlap_tokens <= 0 or not text:
+		return ""
+
+	enc = _get_encoder()
+	if enc is None:
+		words = text.split()
+		return " ".join(words[-overlap_tokens:])
+	return enc.decode(enc.encode(text)[-overlap_tokens:])
+
 
 def make_chunks(paragraphs: List[str], max_tokens: int = 350, overlap_tokens: int = 40) -> List[Tuple[int, str]]:
-	"""
-	Pack cleaned paragraphs into ~max_tokens chunks with small token overlap.
-	Returns a list of (ord, chunk_text).
-	"""
 	chunks: List[Tuple[int, str]] = []
 	if not paragraphs:
 		return chunks
 
-	buf: List[str] = []
-	buf_tokens = 0
-	ord_idx = 0
+	buffer: List[str] = []
+	buffer_tokens = 0
+	index = 0
 
-	for para in paragraphs:
-		if not para:
+	for paragraph in paragraphs:
+		if not paragraph:
 			continue
-		ptok = _tok_len(para)
-		# If single paragraph is huge, hard-split it.
-		if ptok > max_tokens:
-			words = para.split()
-			cur: List[str] = []
-			cur_tok = 0
-			for w in words:
-				wt = _tok_len((" " if cur else "") + w)
-				if cur_tok + wt > max_tokens:
-					if cur:
-						chunks.append((ord_idx, " ".join(cur)))
-						ord_idx += 1
-					# start next segment with overlap from end of previous
+
+		paragraph_tokens = _tok_len(paragraph)
+		if paragraph_tokens > max_tokens:
+			words = paragraph.split()
+			current_words: List[str] = []
+			current_tokens = 0
+			for word in words:
+				word_tokens = _tok_len((" " if current_words else "") + word)
+				if current_tokens + word_tokens > max_tokens:
+					if current_words:
+						chunks.append((index, " ".join(current_words)))
+						index += 1
 					if overlap_tokens and chunks:
-						tail = _enc.decode(_enc.encode(chunks[-1][1])[-overlap_tokens:])
-						cur = [tail]
-						cur_tok = _tok_len(tail)
+						tail = _tail_text(chunks[-1][1], overlap_tokens)
+						current_words = [tail]
+						current_tokens = _tok_len(tail)
 					else:
-						cur, cur_tok = [], 0
-				if w:
-					cur.append(w)
-					cur_tok += wt
-			if cur:
-				chunks.append((ord_idx, " ".join(cur)))
-				ord_idx += 1
+						current_words = []
+						current_tokens = 0
+				if word:
+					current_words.append(word)
+					current_tokens += word_tokens
+			if current_words:
+				chunks.append((index, " ".join(current_words)))
+				index += 1
 			continue
 
-		# Normal packing: append para if it fits, else flush buffer.
-		if buf and (buf_tokens + 1 + ptok) > max_tokens:
-			chunks.append((ord_idx, "\n\n".join(buf)))
-			ord_idx += 1
-			# start new buffer with an overlap tail
+		if buffer and (buffer_tokens + 1 + paragraph_tokens) > max_tokens:
+			chunks.append((index, "\n\n".join(buffer)))
+			index += 1
 			if overlap_tokens:
-				tail = _enc.decode(_enc.encode(chunks[-1][1])[-overlap_tokens:])
-				buf = [tail] if tail else []
-				buf_tokens = _tok_len(tail) if tail else 0
+				tail = _tail_text(chunks[-1][1], overlap_tokens)
+				buffer = [tail] if tail else []
+				buffer_tokens = _tok_len(tail) if tail else 0
 			else:
-				buf, buf_tokens = [], 0
+				buffer = []
+				buffer_tokens = 0
 
-		# add paragraph to buffer
-		if buf:
-			buf.append(para)
-			buf_tokens += 1 + ptok  # +1 approx for the joiner/newlines
+		if buffer:
+			buffer.append(paragraph)
+			buffer_tokens += 1 + paragraph_tokens
 		else:
-			buf = [para]
-			buf_tokens = ptok
+			buffer = [paragraph]
+			buffer_tokens = paragraph_tokens
 
-	# flush remainder
-	if buf:
-		chunks.append((ord_idx, "\n\n".join(buf)))
+	if buffer:
+		chunks.append((index, "\n\n".join(buffer)))
 
 	return chunks

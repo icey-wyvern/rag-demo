@@ -21,7 +21,6 @@ body {
 	background: radial-gradient(circle at top, #0f172a 0, #020617 55%, #000 100%);
 }
 
-/* Root fills the viewport height so header + footer stay put */
 #root {
 	width: 100%;
 	max-width: 960px;
@@ -34,8 +33,6 @@ body {
 #root > * {
 	width: 100%;
 }
-
-/* Main app container */
 
 .app-root {
 	display: flex;
@@ -58,17 +55,10 @@ body {
 	}
 }
 
-/* Typography */
-
 h1 {
 	margin: 0 0 0.5rem;
 	font-size: clamp(1.75rem, 2.4vw + 1.4rem, 2.6rem);
 	letter-spacing: 0.03em;
-}
-
-h1 span {
-	font-weight: 600;
-	color: #22c55e;
 }
 
 .subtitle {
@@ -77,7 +67,39 @@ h1 span {
 	font-size: 0.95rem;
 }
 
-/* Chat shell: messages above, input bar at bottom */
+.status-banner {
+	border-radius: 1rem;
+	padding: 0.9rem 1rem;
+	border: 1px solid rgba(148, 163, 184, 0.3);
+	background: rgba(15, 23, 42, 0.72);
+}
+
+.status-banner strong {
+	display: block;
+	margin-bottom: 0.3rem;
+}
+
+.status-banner p {
+	margin: 0;
+	font-size: 0.92rem;
+}
+
+.status-banner-note {
+	margin-top: 0.45rem !important;
+	color: #9ca3af;
+}
+
+.status-banner-ready {
+	border-color: rgba(34, 197, 94, 0.45);
+}
+
+.status-banner-pending {
+	border-color: rgba(96, 165, 250, 0.45);
+}
+
+.status-banner-error {
+	border-color: rgba(239, 68, 68, 0.6);
+}
 
 .chat-shell {
 	display: flex;
@@ -87,7 +109,6 @@ h1 span {
 	gap: 1rem;
 }
 
-/* Only this area scrolls now */
 .chat-messages {
 	flex: 1;
 	min-height: 160px;
@@ -97,8 +118,6 @@ h1 span {
 	gap: 1rem;
 	padding-right: 0.25rem;
 }
-
-/* Each message row controls left/right alignment */
 
 .chat-message-row {
 	display: flex;
@@ -114,7 +133,6 @@ h1 span {
 	justify-content: flex-start;
 }
 
-/* Scrollbar hint (non-essential) */
 .chat-messages::-webkit-scrollbar {
 	width: 6px;
 }
@@ -123,8 +141,6 @@ h1 span {
 	border-radius: 999px;
 	background: rgba(148, 163, 184, 0.6);
 }
-
-/* Chat bubbles */
 
 .chat-bubble {
 	border-radius: 0.9rem;
@@ -142,7 +158,6 @@ h1 span {
 	margin-bottom: 0.35rem;
 }
 
-/* Tighter user bubble so it doesn’t look oversized */
 .chat-message-row-user .chat-bubble {
 	padding: 0.7rem 0.9rem;
 	line-height: 1.4;
@@ -163,8 +178,6 @@ h1 span {
 .chat-bubble-chunks {
 	border-color: rgba(96, 165, 250, 0.65);
 }
-
-/* Retrieved chunks list */
 
 .chunk-list {
 	list-style: none;
@@ -195,21 +208,20 @@ h1 span {
 	font-weight: 600;
 }
 
-.chunk-meta a {
-	font-size: 0.82rem;
+.chunk-meta a,
+.chat-citations a {
 	color: #22c55e;
 	text-decoration: none;
 }
 
-.chunk-meta a:hover {
+.chunk-meta a:hover,
+.chat-citations a:hover {
 	text-decoration: underline;
 }
 
 .chunk-snippet {
 	margin: 0;
 }
-
-/* Citations under answer */
 
 .chat-citations {
 	margin-top: 0.75rem;
@@ -231,17 +243,6 @@ h1 span {
 	margin-bottom: 0.2rem;
 }
 
-.chat-citations a {
-	color: #22c55e;
-	text-decoration: none;
-}
-
-.chat-citations a:hover {
-	text-decoration: underline;
-}
-
-/* Seeded docs + example questions inside initial bubble */
-
 .seeded-list {
 	margin: 0.35rem 0 0.35rem 1.25rem;
 	padding: 0;
@@ -251,8 +252,6 @@ h1 span {
 	margin: 0.75rem 0 0.25rem;
 	font-weight: 600;
 }
-
-/* Chat form at bottom */
 
 .chat-form {
 	margin-top: auto;
@@ -269,8 +268,6 @@ h1 span {
 	gap: 0.75rem;
 	align-items: stretch;
 }
-
-/* Mode switch on left, stacked */
 
 .mode-switch {
 	display: flex;
@@ -291,8 +288,6 @@ h1 span {
 	margin: 0;
 }
 
-/* Input bubble */
-
 .chat-input-wrapper {
 	flex: 1;
 }
@@ -311,14 +306,17 @@ h1 span {
 		background-color 0.15s ease;
 }
 
+.chat-input-wrapper input[type="text"]:disabled {
+	cursor: not-allowed;
+	opacity: 0.75;
+}
+
 .chat-input-wrapper input[type="text"]:focus {
 	outline: none;
 	border-color: #22c55e;
 	box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.5);
 	background: rgba(15, 23, 42, 1);
 }
-
-/* Button on right */
 
 button {
 	border-radius: 999px;
@@ -334,8 +332,6 @@ button {
 	background-color: #313131;
 	white-space: nowrap;
 	transition:
-		transform 0.08s ease,
-		box-shadow 0.08s ease,
 		filter 0.08s ease,
 		border-color 0.12s ease,
 		opacity 0.1s ease;
@@ -347,9 +343,6 @@ button:hover {
 	color: #020617;
 }
 
-button:active {
-}
-
 button:disabled {
 	color: #808080;
 	background-color: #313131;
@@ -357,8 +350,6 @@ button:disabled {
 	cursor: default;
 	border-color: transparent;
 }
-
-/* Responsive tweaks */
 
 @media (max-width: 640px) {
 	.chat-form {
@@ -375,8 +366,6 @@ button:disabled {
 		min-width: 0;
 	}
 }
-
-/* Screen-reader only text */
 
 .sr-only {
 	position: absolute;

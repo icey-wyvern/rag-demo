@@ -1,23 +1,11 @@
-from langchain_postgres import PGVector
-from langchain_openai import OpenAIEmbeddings
+from typing import Any, Dict, List
 
-from .config import get_settings
+from sqlalchemy.orm import Session
 
-_settings = get_settings()
+from .embeddings import get_embeddings
+from .store import vector_search
 
-# Shared embeddings instance
-_embeddings = OpenAIEmbeddings(
-	model=_settings.EMBED_MODEL,
-	openai_api_key=_settings.OPENAI_API_KEY,
-)
 
-# Singleton PGVector store (uses the same Postgres as the rest of the app)
-_vectorstore = PGVector(
-	embeddings=_embeddings,
-	collection_name="govuk",
-	connection=_settings.DATABASE_URL,  # e.g. postgresql+psycopg://app_user:app_password@db:5432/appdb
-	use_jsonb=True,
-)
-
-def get_vectorstore() -> PGVector:
-	return _vectorstore
+def similarity_search(db: Session, query: str, k: int = 8) -> List[Dict[str, Any]]:
+    query_vec = get_embeddings().embed_query(query)
+    return vector_search(db, query_vec=query_vec, k=k)

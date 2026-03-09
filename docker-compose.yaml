@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -26,8 +24,40 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       EMBED_MODEL: text-embedding-3-small
       GEN_MODEL: gpt-4o-mini
+      CORPUS_VERSION: ${CORPUS_VERSION:-1}
+      SEED_DOCS_DIR: /app/docs
+      SEED_CACHE_DIR: /app/data/seed-cache
+      SEED_DOWNLOAD_TIMEOUT_SECONDS: ${SEED_DOWNLOAD_TIMEOUT_SECONDS:-60}
     ports:
       - "8080:8080"
+    volumes:
+      - seed-cache:/app/data/seed-cache
+      - ./docs:/app/docs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ingest:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "api.ingest_cli"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://app_user:app_password@db:5432/appdb
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      EMBED_MODEL: text-embedding-3-small
+      GEN_MODEL: gpt-4o-mini
+      CORPUS_VERSION: ${CORPUS_VERSION:-1}
+      SEED_DOCS_DIR: /app/docs
+      SEED_CACHE_DIR: /app/data/seed-cache
+      SEED_DOWNLOAD_TIMEOUT_SECONDS: ${SEED_DOWNLOAD_TIMEOUT_SECONDS:-60}
+    volumes:
+      - seed-cache:/app/data/seed-cache
+      - ./docs:/app/docs:ro
 
 volumes:
   db-data:
+  seed-cache:

@@ -1,44 +1,84 @@
-# UK GVT RAG Demo
+# GOV.UK RAG Demo
 
-A simple demo for asking questions about a set of seeded GOV.UK documents using RAG and the OpenAI API.
+A retrieval-augmented generation demo over a seeded set of GOV.UK strategy and resilience documents. The stack is FastAPI, PostgreSQL with pgvector, React, and the OpenAI API.
 
----
+## Features
 
-## Setup
+- Semantic retrieval over a fixed GOV.UK corpus
+- Grounded answer generation with source citations
+- Chunk inspection mode for debugging retrieval quality
+- Recoverable corpus ingestion with explicit readiness/status reporting
+- Single-command local startup with Docker Compose
 
-1. Clone this repository and open it in a terminal:
+## Seeded documents
 
-   ```bash
-   git clone https://github.com/icey-wyvern/rag-demo.git
-   ```
+- National Risk Register 2025
+- The UK Government Resilience Framework
+- British Energy Security Strategy
+- Government Cyber Security Strategy 2022-2030
+- Net Zero Strategy: Build Back Greener
 
-2. In the project root, edit `.env` and add your OpenAI API key:
+## Local development
 
-   ```env
-   OPENAI_API_KEY=sk-your-key-here
-   ```
+1. Copy `.env.example` to `.env`.
+2. Set `OPENAI_API_KEY` in `.env`.
+3. Optional: place local copies of the seeded PDFs in [docs/README.md](/c:/osrs-py/gvt-rag/docs/README.md) to avoid network downloads during ingestion.
+4. Start the stack:
 
-3. From the project root, run:
-
-   ```bash
-   docker-compose up --build
-   ```
-
----
-
-## Running the app
-
-Once Docker has finished starting up, open:
-
-```text
-http://localhost:8080
+```bash
+docker compose up --build
 ```
 
----
+5. Open `http://localhost:8080`.
 
-## Using the app
+`webapi` serves the UI immediately. `ingest` builds the retrieval corpus in the background. The UI polls corpus status and unlocks querying once ingestion is complete.
 
-* Type a question into the input box.
-* Choose **Generative** or **Chunks only**.
-* Click **Ask**.
-* Use the source links to open the underlying PDFs (they jump to the relevant page).
+## Commands
+
+Build the corpus again:
+
+```bash
+docker compose run --rm ingest python -m api.ingest_cli --force
+```
+
+Reset local corpus state:
+
+```bash
+docker compose run --rm webapi python -m api.reset_cli --yes
+```
+
+Run backend tests:
+
+```bash
+python -m unittest discover -s tests
+```
+
+Run frontend checks after installing web dependencies:
+
+```bash
+cd web
+npm run build
+npm run test
+```
+
+## Architecture
+
+- `api/main.py`: FastAPI endpoints and corpus readiness handling
+- `api/ingest.py`: recoverable corpus ingestion pipeline
+- `api/store.py`: database persistence for corpus state, documents, chunks, and vector search
+- `api/generator.py`: grounded answer generation over retrieved chunks
+- `web/src`: status-aware chat UI
+
+## Operational notes
+
+- `GET /health` reports API health and corpus state.
+- `GET /api/status` reports corpus readiness for the UI.
+- `POST /api/query` returns `503` until the corpus is ready.
+- Seed PDFs are cached under `/app/data/seed-cache` inside Docker to make re-runs faster.
+
+## Notes
+
+- On first startup, the `ingest` service downloads the seeded PDFs if local copies are not present.
+- Ingestion is idempotent at the document level and can be re-run safely.
+- If ingestion fails, the API still starts and surfaces the error through `GET /health`, `GET /api/status`, and the UI status banner.
+- The frontend lockfile is intentionally generated as part of the final environment bootstrap step if it is not yet present in this checkout.

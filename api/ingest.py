@@ -1,134 +1,237 @@
-from typing import Tuple, List, Dict
-from sqlalchemy.orm import Session
+from __future__ import annotations
+
+import asyncio
+import hashlib
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List
+
 import httpx
+from sqlalchemy.orm import Session
 
 from .chunker import make_chunks
-from .store import upsert_document, count_documents  # keep docs table to gate first-boot ingest
-from .vectorstore import get_vectorstore
-from .pdf_loader import load_pdf_from_bytes
+from .config import get_settings, validate_ingest_settings
+from .embeddings import get_embeddings
+from .pdf_loader import load_pdf, load_pdf_from_bytes
+from .seed_docs import SEED_PDFS
+from .store import (
+    corpus_is_ready,
+    count_ready_documents,
+    get_or_create_corpus_state,
+    mark_corpus_state,
+    mark_all_documents_pending,
+    release_corpus_lock,
+    replace_document_chunks,
+    try_acquire_corpus_lock,
+    upsert_document,
+)
 
 
-# Seed PDFs we’ll download over HTTP and ingest
-SEED_PDFS: List[Dict[str, str]] = [
-	{
-		"title": "National Risk Register 2025",
-		"base_path": "national-risk-register-2025",
-		"url": "https://assets.publishing.service.gov.uk/media/67b5f85732b2aab18314bbe4/National_Risk_Register_2025.pdf",
-	},
-	{
-		"title": "The UK Government Resilience Framework",
-		"base_path": "uk-government-resilience-framework-2022",
-		"url": "https://assets.publishing.service.gov.uk/media/63cff056e90e071ba7b41d54/UKG_Resilience_Framework_FINAL_v2.pdf",
-	},
-	{
-		"title": "British Energy Security Strategy",
-		"base_path": "british-energy-security-strategy-2022",
-		"url": "https://assets.publishing.service.gov.uk/media/626112c0e90e07168e3fdba3/british-energy-security-strategy-web-accessible.pdf",
-	},
-	{
-		"title": "Government Cyber Security Strategy 2022–2030",
-		"base_path": "government-cyber-security-strategy-2022-2030",
-		"url": "https://assets.publishing.service.gov.uk/media/61f0169de90e070375c230a8/government-cyber-security-strategy.pdf",
-	},
-	{
-		"title": "Net Zero Strategy: Build Back Greener",
-		"base_path": "net-zero-strategy-build-back-greener",
-		"url": "https://assets.publishing.service.gov.uk/media/6194dfa4d3bf7f0555071b1b/net-zero-strategy-beis.pdf",
-	},
-]
+@dataclass(frozen=True)
+class IngestResult:
+    status: str
+    documents_total: int
+    documents_ready: int
+    message: str = ""
 
 
-async def ingest_seed_docs(db: Session) -> Tuple[int, int]:
-	"""
-	Download the predefined PDFs over HTTP, chunk them, and ingest into
-	the LangChain PGVector store. Also upserts rows in our 'documents'
-	table to prevent re-ingest on restarts.
-
-	Each chunk now carries:
-	- title
-	- url
-	- page       (1-based PDF page number)
-	- source_file (PDF filename as returned by pdf_loader)
-	Returns: (num_docs, num_chunks)
-	"""
-	total_docs = 0
-	total_chunks = 0
-
-	vstore = get_vectorstore()
-	timeout = httpx.Timeout(60.0)
-
-	async with httpx.AsyncClient(timeout=timeout) as client:
-		for seed in SEED_PDFS:
-			title = seed["title"]
-			base_path = seed["base_path"]
-			url = seed["url"]
-
-			# Fetch the entire PDF into memory
-			resp = await client.get(url)
-			resp.raise_for_status()
-			pdf_bytes = resp.content
-
-			# Turn pages -> paragraphs using our PDF loader
-			filename = url.rsplit("/", 1)[-1] or base_path
-			doc = load_pdf_from_bytes(name=filename, data=pdf_bytes)
-			paragraph_items = doc.get("paragraphs", [])
-
-			if not paragraph_items:
-				continue
-
-			# Group paragraph texts by page so we can preserve page numbers in metadata
-			# paragraph_items is a list of dicts like { "page": int, "text": str }
-			page_buckets: Dict[int, List[str]] = {}
-			for item in paragraph_items:
-				page = int(item.get("page", 1))
-				text = item.get("text", "")
-				if not text:
-					continue
-				page_buckets.setdefault(page, []).append(text)
-
-			if not page_buckets:
-				continue
-
-			texts: List[str] = []
-			metas: List[Dict] = []
-
-			# For each page, create chunks and attach that page number in metadata
-			for page, para_texts in sorted(page_buckets.items(), key=lambda kv: kv[0]):
-				# Paragraphs on this page -> token-aware chunks
-				ordered_chunks = make_chunks(para_texts)  # List[(ord, text)]
-				if not ordered_chunks:
-					continue
-
-				for _ord, chunk_text in ordered_chunks:
-					texts.append(chunk_text)
-					metas.append(
-						{
-							"title": title,
-							"url": url,
-							"page": page,
-							"source_file": doc.get("path"),
-						}
-					)
-
-			if not texts:
-				continue
-
-			# Store in PGVector (embeddings handled by LangChain/OpenAI)
-			vstore.add_texts(texts=texts, metadatas=metas)
-
-			# Mark document ingested (for needs_ingest)
-			upsert_document(db, title=title, base_path=base_path, url=url)
-			db.commit()
-
-			total_docs += 1
-			total_chunks += len(texts)
-
-	return total_docs, total_chunks
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
-def needs_ingest(db: Session) -> bool:
-	"""
-	Gate re-ingest across restarts: if any documents exist,
-	we assume seeding has already happened.
-	"""
-	return count_documents(db) == 0
+def _cache_path(cache_dir: Path, base_path: str) -> Path:
+    return cache_dir / f"{base_path}.pdf"
+
+
+def _load_cached_or_local_pdf(*, base_path: str, docs_dir: Path, cache_dir: Path):
+    local_path = docs_dir / f"{base_path}.pdf"
+    if local_path.exists():
+        return load_pdf(local_path), local_path.read_bytes()
+
+    cached_path = _cache_path(cache_dir, base_path)
+    if cached_path.exists():
+        return load_pdf(cached_path), cached_path.read_bytes()
+
+    return None, None
+
+
+async def _download_seed_pdf(client: httpx.AsyncClient, *, url: str, base_path: str, cache_dir: Path):
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.content
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            _cache_path(cache_dir, base_path).write_bytes(data)
+            return load_pdf_from_bytes(name=url.rsplit("/", 1)[-1] or base_path, data=data), data
+        except Exception as exc:
+            last_error = exc
+            await asyncio.sleep(1.0)
+    raise RuntimeError(f"Failed to download seed document {base_path}: {last_error}")
+
+
+def _build_pages_and_texts(paragraph_items: List[Dict[str, object]]) -> List[tuple[int, str]]:
+    page_buckets: Dict[int, List[str]] = {}
+    for item in paragraph_items:
+        page = int(item.get("page", 1))
+        text = str(item.get("text", ""))
+        if text:
+            page_buckets.setdefault(page, []).append(text)
+
+    pages_and_texts: List[tuple[int, str]] = []
+    for page, paragraphs in sorted(page_buckets.items()):
+        for _, chunk_text in make_chunks(paragraphs):
+            pages_and_texts.append((page, chunk_text))
+    return pages_and_texts
+
+
+async def ingest_seed_docs(db: Session, *, force: bool = False) -> IngestResult:
+    settings = get_settings()
+    validate_ingest_settings(settings)
+    documents_total = len(SEED_PDFS)
+    if not force and corpus_is_ready(db, ingest_version=settings.CORPUS_VERSION, documents_total=documents_total):
+        return IngestResult(
+            status="ready",
+            documents_total=documents_total,
+            documents_ready=documents_total,
+            message="Corpus already ready.",
+        )
+
+    if not try_acquire_corpus_lock(db):
+        state = get_or_create_corpus_state(
+            db,
+            ingest_version=settings.CORPUS_VERSION,
+            documents_total=documents_total,
+        )
+        db.commit()
+        return IngestResult(
+            status=state.status,
+            documents_total=state.documents_total,
+            documents_ready=state.documents_ready,
+            message="Another ingestion process is already running.",
+        )
+
+    docs_dir = Path(settings.SEED_DOCS_DIR)
+    cache_dir = Path(settings.SEED_CACHE_DIR)
+    mark_corpus_state(
+        db,
+        status="running",
+        ingest_version=settings.CORPUS_VERSION,
+        documents_total=documents_total,
+        documents_ready=0,
+        last_error=None,
+    )
+    mark_all_documents_pending(db, settings.CORPUS_VERSION)
+    db.commit()
+
+    try:
+        timeout = httpx.Timeout(settings.SEED_DOWNLOAD_TIMEOUT_SECONDS)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            for seed in SEED_PDFS:
+                title = seed["title"]
+                base_path = seed["base_path"]
+                url = seed["url"]
+
+                doc_payload, data = _load_cached_or_local_pdf(
+                    base_path=base_path,
+                    docs_dir=docs_dir,
+                    cache_dir=cache_dir,
+                )
+                if doc_payload is None or data is None:
+                    doc_payload, data = await _download_seed_pdf(
+                        client,
+                        url=url,
+                        base_path=base_path,
+                        cache_dir=cache_dir,
+                    )
+
+                pages_and_texts = _build_pages_and_texts(doc_payload.get("paragraphs", []))
+                if not pages_and_texts:
+                    raise RuntimeError(f"No extractable text found in {title}.")
+
+                embeddings = get_embeddings().embed_documents([text for _, text in pages_and_texts])
+                source_sha256 = _sha256_bytes(data)
+
+                doc = upsert_document(
+                    db,
+                    title=title,
+                    base_path=base_path,
+                    url=url,
+                    source_sha256=source_sha256,
+                    ingest_version=settings.CORPUS_VERSION,
+                    status="indexing",
+                    chunk_count=len(pages_and_texts),
+                )
+                replace_document_chunks(
+                    db,
+                    doc_id=doc.id,
+                    pages_and_texts=pages_and_texts,
+                    embeddings=embeddings,
+                )
+                upsert_document(
+                    db,
+                    title=title,
+                    base_path=base_path,
+                    url=url,
+                    source_sha256=source_sha256,
+                    ingest_version=settings.CORPUS_VERSION,
+                    status="ready",
+                    chunk_count=len(pages_and_texts),
+                )
+                ready_count = count_ready_documents(db, settings.CORPUS_VERSION)
+                mark_corpus_state(
+                    db,
+                    status="running",
+                    ingest_version=settings.CORPUS_VERSION,
+                    documents_total=documents_total,
+                    documents_ready=ready_count,
+                    last_error=None,
+                )
+                db.commit()
+
+        mark_corpus_state(
+            db,
+            status="ready",
+            ingest_version=settings.CORPUS_VERSION,
+            documents_total=documents_total,
+            documents_ready=documents_total,
+            last_error=None,
+        )
+        db.commit()
+        return IngestResult(
+            status="ready",
+            documents_total=documents_total,
+            documents_ready=documents_total,
+            message="Corpus ingestion completed.",
+        )
+    except Exception as exc:
+        ready_count = count_ready_documents(db, settings.CORPUS_VERSION)
+        mark_corpus_state(
+            db,
+            status="error",
+            ingest_version=settings.CORPUS_VERSION,
+            documents_total=documents_total,
+            documents_ready=ready_count,
+            last_error=str(exc),
+        )
+        db.commit()
+        return IngestResult(
+            status="error",
+            documents_total=documents_total,
+            documents_ready=ready_count,
+            message=str(exc),
+        )
+    finally:
+        release_corpus_lock(db)
+        db.commit()
+
+
+def run_ingest(*, force: bool = False) -> IngestResult:
+    from .db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return asyncio.run(ingest_seed_docs(db, force=force))
+    finally:
+        db.close()

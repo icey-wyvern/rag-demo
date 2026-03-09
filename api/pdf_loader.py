@@ -1,129 +1,63 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List
 
 from pypdf import PdfReader
-import re
-
 
 DOCS_ROOT = Path("/app/docs")
 
 
 def _simple_title(name: str) -> str:
-	"""Turn 'highway-code.pdf' into 'Highway Code'."""
-	base = Path(name).stem
-	# Replace underscores/hyphens with spaces and title-case
-	base = re.sub(r"[_\-]+", " ", base).strip()
-	return base.title()
+	return re.sub(r"[_\-]+", " ", Path(name).stem).strip().title()
 
 
 def _split_paragraphs(text: str) -> List[str]:
-	"""
-	Split raw PDF page text into paragraph-like chunks.
-
-	Strategy:
-	- split on blank lines
-	- normalise whitespace
-	- drop very short fragments
-	"""
 	if not text:
 		return []
 
-	# split on blank lines
 	chunks = re.split(r"\n\s*\n+", text)
-
-	out: List[str] = []
+	paragraphs: List[str] = []
 	for chunk in chunks:
-		# collapse "wrapped" lines where pages have hard line breaks
-		s = chunk.strip()
-		if not s:
+		cleaned = chunk.strip()
+		if not cleaned:
 			continue
 
-		# Replace multiple spaces/tabs with single space
-		s = re.sub(r"[ \t]+", " ", s)
-		# Normalise stray internal newlines (keep paragraph feel but avoid crazy breaks)
-		s = re.sub(r"\s*\n\s*", " ", s)
+		cleaned = re.sub(r"[ \t]+", " ", cleaned)
+		cleaned = re.sub(r"\s*\n\s*", " ", cleaned)
+		if len(cleaned) >= 20:
+			paragraphs.append(cleaned)
 
-		if len(s) < 20:
-			# probably a header/page number etc.
-			continue
-
-		out.append(s)
-
-	return out
+	return paragraphs
 
 
 def list_pdf_paths(root: Path = DOCS_ROOT) -> List[Path]:
-	"""Return a sorted list of PDF file paths in the given root directory."""
 	if not root.exists():
 		return []
-	return sorted(
-		[p for p in root.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"]
-	)
+	return sorted(path for path in root.iterdir() if path.is_file() and path.suffix.lower() == ".pdf")
 
 
 def load_pdf(path: Path) -> Dict:
-	"""
-	Read a single PDF from disk and return a dict:
-
-	{
-		"title": str,
-		"path": str,                 # basename, e.g. 'highway-code.pdf'
-		"paragraphs": List[Dict],    # [{ "page": int, "text": str }, ...]
-	}
-	"""
 	reader = PdfReader(str(path))
-	all_paras: List[Dict] = []
+	paragraphs: List[Dict] = []
+	for page_num, page in enumerate(reader.pages, start=1):
+		for paragraph in _split_paragraphs(page.extract_text() or ""):
+			paragraphs.append({"page": page_num, "text": paragraph})
 
-	for i, page in enumerate(reader.pages, start=1):
-		raw = page.extract_text() or ""
-		for para in _split_paragraphs(raw):
-			all_paras.append({
-				"page": i,
-				"text": para,
-			})
-
-	return {
-		"title": _simple_title(path.name),
-		"path": path.name,
-		"paragraphs": all_paras,
-	}
+	return {"title": _simple_title(path.name), "path": path.name, "paragraphs": paragraphs}
 
 
 def load_pdf_from_bytes(name: str, data: bytes) -> Dict:
-	"""
-	Same shape as load_pdf(), but reads from an in-memory bytes object
-	instead of a file on disk. This is what we'll use for HTTP-fetched PDFs.
-
-	{
-		"title": str,
-		"path": str,                 # logical name, e.g. 'National_Risk_Register_2025.pdf'
-		"paragraphs": List[Dict],    # [{ "page": int, "text": str }, ...]
-	}
-	"""
 	reader = PdfReader(BytesIO(data))
-	all_paras: List[Dict] = []
+	paragraphs: List[Dict] = []
+	for page_num, page in enumerate(reader.pages, start=1):
+		for paragraph in _split_paragraphs(page.extract_text() or ""):
+			paragraphs.append({"page": page_num, "text": paragraph})
 
-	for i, page in enumerate(reader.pages, start=1):
-		raw = page.extract_text() or ""
-		for para in _split_paragraphs(raw):
-			all_paras.append({
-				"page": i,
-				"text": para,
-			})
-
-	return {
-		"title": _simple_title(name),
-		"path": name,
-		"paragraphs": all_paras,
-	}
+	return {"title": _simple_title(name), "path": name, "paragraphs": paragraphs}
 
 
 def load_all_pdfs(root: Path = DOCS_ROOT) -> List[Dict]:
-	"""Load every PDF in /app/docs and return a list of doc dicts (see load_pdf)."""
-	docs: List[Dict] = []
-	for p in list_pdf_paths(root):
-		docs.append(load_pdf(p))
-	return docs
+	return [load_pdf(path) for path in list_pdf_paths(root)]
