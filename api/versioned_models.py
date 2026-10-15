@@ -2,7 +2,8 @@
 
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, func, literal_column
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, func, literal_column
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -79,3 +80,28 @@ class Passage(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     snapshot = relationship("SourceSnapshot", back_populates="passages")
+    embeddings = relationship("PassageEmbedding", back_populates="passage", passive_deletes="all")
+
+
+class PassageEmbedding(Base):
+    """Derived vector for one immutable passage and one provider/model identity."""
+
+    __tablename__ = "passage_embeddings"
+    __table_args__ = (
+        UniqueConstraint("passage_id", "provider", "model", name="uq_passage_embeddings_identity"),
+        CheckConstraint("dimensions = 1536", name="ck_passage_embeddings_dimensions_1536"),
+        Index("ix_passage_embeddings_provider_model", "provider", "model"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    passage_id = Column(
+        UUID(as_uuid=True), ForeignKey("passages.id", name="fk_passage_embeddings_passage", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider = Column(Text, nullable=False)
+    model = Column(Text, nullable=False)
+    dimensions = Column(Integer, nullable=False)
+    embedding = Column(Vector(1536), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    passage = relationship("Passage", back_populates="embeddings")

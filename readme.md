@@ -70,6 +70,12 @@ Without `as_of`, each source contributes only its latest locally observed snapsh
 
 After populating the versioned PostgreSQL corpus, run `python -m api.retrieval_eval_cli` for the small current-source dataset, or pass `--dataset PATH` for a corpus-specific dataset. The separate `eval/fixture_retrieval_cases.json` has seven deterministic scenarios, including illustrative observations A and B at 15 and 16 October 2026. It requires a matching isolated fixture corpus for a meaningful database run; its two bodies are not verified historical publications. The evaluator reports Recall@1, Recall@3, and MRR over cases with expected evidence; cases expecting none pass only when retrieval returns no results and have a separate accuracy. Temporal accuracy covers `as_of` cases, including expected absence. Failed case IDs are reported. No benchmark number is claimed here.
 
+## Opt-in versioned passage embeddings
+
+`passage_embeddings` stores derived vectors separately from immutable passage text and hashes. Each row belongs to one passage and one provider/model pair, so reruns skip existing vectors and a different model can coexist without replacing history. The current column is `vector(1536)` and the indexer rejects other dimensions; this supports the configured `text-embedding-3-small` default, not arbitrary vector sizes.
+
+After applying Alembic migrations and ingesting versioned passages, run `python -m api.passage_embedding_cli` with a configured `OPENAI_API_KEY`. The command uses the configured `EMBED_MODEL`, indexes missing passages in batches, and reports already indexed, newly indexed, and remaining counts. Each batch commits atomically; a failed batch rolls back while earlier batches remain. This is optional and makes OpenAI calls when run. The versioned lexical retriever and `/api/query` do not use these embeddings yet.
+
 Run backend tests:
 
 ```bash
