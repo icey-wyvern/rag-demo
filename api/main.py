@@ -1,138 +1,140 @@
-from pathlib import Path
-from typing import Any, Dict, List, Literal
+"""Public API backed by the versioned evidence-first query pipeline."""
 
-from fastapi import FastAPI, HTTPException
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .config import get_settings
 from .db import SessionLocal
-from .generator import Generator
-from .models import CorpusState
-from .vectorstore import similarity_search
+from .evidence_answer import AnswerError, AnswerProviderError, EvidenceFirstAnswerService
+from .openai_answer_provider import OpenAIAnswerProvider
+from .passage_embedding_provider import OpenAIPassageEmbeddingProvider
+from .query_service import QueryPipeline, serialize_query_result
+from .versioned_readiness import versioned_corpus_state
+from .versioned_retriever import DEFAULT_K, MAX_K, SemanticRetrievalError, VersionedRetriever
 
-settings = get_settings()
+
 app = FastAPI(title="gvt-rag")
 static_dir = Path(__file__).resolve().parents[1] / "static"
 
 
 class QueryRequest(BaseModel):
-    q: str
-    mode: Literal["chunks", "generate"] = "chunks"
+    model_config = ConfigDict(extra="forbid")
+
+    q: str | None = None  # Existing frontend field.
+    question: str | None = None
+    mode: Literal["chunks", "generate"] = "generate"
+    retrieval_mode: Literal["lexical", "semantic", "hybrid"] = "hybrid"
+    as_of: datetime | None = None
+    k: int = Field(default=DEFAULT_K, ge=1, le=MAX_K, strict=True)
+
+    @field_validator("as_of", mode="before")
+    @classmethod
+    def as_of_is_timestamp(cls, value):
+        if value is not None and not isinstance(value, (str, datetime)):
+            raise ValueError("as_of must be a timezone-aware timestamp")
+        return value
+
+    @field_validator("as_of")
+    @classmethod
+    def as_of_is_aware(cls, value):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("as_of must be timezone-aware")
+        return value
+
+    @model_validator(mode="after")
+    def has_question(self):
+        q = self.q.strip() if isinstance(self.q, str) else ""
+        question = self.question.strip() if isinstance(self.question, str) else ""
+        if not q and not question:
+            raise ValueError("question must be non-empty")
+        if q and question and q != question:
+            raise ValueError("q and question must agree when both are supplied")
+        return self
+
+    @property
+    def query_text(self) -> str:
+        return (self.q or self.question or "").strip()
 
 
-def _snippet(text: str, limit: int = 360) -> str:
-    if not text or len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."
+class _ConfiguredAnswerProvider:
+    """Construct the network adapter only if the answer service calls generate."""
+
+    def generate(self, question: str, formatted_evidence: str, instructions: str) -> object:
+        return OpenAIAnswerProvider.from_settings().generate(question, formatted_evidence, instructions)
 
 
-def _serialize_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "title": doc.get("title", ""),
-        "url": doc.get("url", ""),
-        "page": doc.get("page"),
-        "snippet": _snippet(doc.get("content", "")),
-        "content": doc.get("content", ""),
-    }
+def get_query_pipeline() -> QueryPipeline:
+    settings = get_settings()
+    embedding_provider = (
+        OpenAIPassageEmbeddingProvider(model=settings.EMBED_MODEL, api_key=settings.OPENAI_API_KEY)
+        if settings.OPENAI_API_KEY else None
+    )
+    retriever = VersionedRetriever(SessionLocal, embedding_provider=embedding_provider)
+    return QueryPipeline(retriever, EvidenceFirstAnswerService(_ConfiguredAnswerProvider()))
 
 
-def _get_corpus_state(db: Session) -> Dict[str, Any]:
-    state = db.get(CorpusState, 1)
-    if state is None:
-        return {
-            "status": "pending",
-            "ingest_version": settings.CORPUS_VERSION,
-            "documents_total": 0,
-            "documents_ready": 0,
-            "last_error": None,
-            "is_ready": False,
-        }
-    return {
-        "status": state.status,
-        "ingest_version": state.ingest_version,
-        "documents_total": state.documents_total,
-        "documents_ready": state.documents_ready,
-        "last_error": state.last_error,
-        "is_ready": state.status == "ready" and state.documents_ready == state.documents_total,
-    }
+def get_versioned_status() -> dict:
+    settings = get_settings()
+    try:
+        with SessionLocal() as session:
+            return versioned_corpus_state(
+                session, settings.EMBED_MODEL, settings.CORPUS_VERSION,
+                provider_configured=bool(settings.OPENAI_API_KEY),
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Versioned corpus status unavailable.") from exc
 
 
 @app.get("/health")
-def health():
-    db = SessionLocal()
-    try:
-        corpus = _get_corpus_state(db)
-        return {"ok": True, "corpus": corpus}
-    finally:
-        db.close()
+def health(corpus: dict = Depends(get_versioned_status)):
+    return {"ok": True, "corpus": corpus}
 
 
 @app.get("/api/status")
-def corpus_status():
-    db = SessionLocal()
-    try:
-        return _get_corpus_state(db)
-    finally:
-        db.close()
+def corpus_status(corpus: dict = Depends(get_versioned_status)):
+    return corpus
 
 
 @app.post("/api/query")
-async def query(req: QueryRequest):
-    q = (req.q or "").strip()
-    if not q:
-        raise HTTPException(status_code=400, detail="Empty query")
-    db = SessionLocal()
+def query(
+    req: QueryRequest,
+    corpus: dict = Depends(get_versioned_status),
+    pipeline: QueryPipeline = Depends(get_query_pipeline),
+):
+    readiness = corpus.get("versioned", {})
+    if not readiness.get("lexical_ready"):
+        raise HTTPException(status_code=503, detail="Versioned corpus is not available yet.")
+    if req.retrieval_mode in ("semantic", "hybrid") and not readiness.get("semantic_ready"):
+        raise HTTPException(status_code=503, detail="Semantic index unavailable for requested retrieval mode.")
+    if req.retrieval_mode in ("semantic", "hybrid") and not readiness.get("provider_configured", True):
+        raise HTTPException(status_code=503, detail="Semantic retrieval provider is not configured.")
     try:
-        corpus = _get_corpus_state(db)
-        if not corpus["is_ready"]:
-            detail = "Corpus is not ready yet."
-            if corpus["status"] == "error" and corpus["last_error"]:
-                detail = f"Corpus ingestion failed: {corpus['last_error']}"
-            elif corpus["status"] == "running":
-                detail = "Corpus ingestion is still running."
-            raise HTTPException(status_code=503, detail=detail)
+        result = pipeline.run(
+            req.query_text, response_mode=req.mode, retrieval_mode=req.retrieval_mode,
+            as_of=req.as_of, k=req.k,
+        )
+        return serialize_query_result(result)
+    except SemanticRetrievalError as exc:
+        raise HTTPException(status_code=503, detail="Semantic index unavailable for requested retrieval mode.") from exc
+    except AnswerProviderError as exc:
+        raise HTTPException(status_code=503, detail="Answer generation unavailable.") from exc
+    except AnswerError as exc:
+        raise HTTPException(status_code=502, detail="Generated answer failed evidence validation.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid query options.") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Versioned query unavailable.") from exc
 
-        try:
-            docs = similarity_search(db, q, k=8)
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"Document store unavailable: {exc}") from exc
-
-        serialized_docs = [_serialize_doc(doc) for doc in docs]
-        chunks = [{key: value for key, value in doc.items() if key != "content"} for doc in serialized_docs]
-
-        if req.mode == "chunks":
-            return {"chunks": chunks}
-
-        contexts: List[Dict[str, Any]] = []
-        seen = set()
-        for doc in serialized_docs:
-            key = (doc["title"], doc["url"], doc["page"], doc["content"])
-            if key in seen:
-                continue
-            seen.add(key)
-            contexts.append(
-                {
-                    "title": doc["title"],
-                    "url": doc["url"],
-                    "page": doc["page"],
-                    "content": doc["content"],
-                }
-            )
-
-        answer, citations = Generator().answer(q, contexts)
-        return {"answer": answer, "citations": citations, "chunks": chunks}
-    finally:
-        db.close()
 
 if static_dir.exists():
     app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 else:
     @app.get("/")
     def root():
-        return {
-            "name": "gvt-rag",
-            "ui_ready": False,
-            "message": "Frontend assets have not been built yet.",
-        }
+        return {"name": "gvt-rag", "ui_ready": False,
+                "message": "Frontend assets have not been built yet."}
