@@ -82,6 +82,12 @@ The versioned retriever accepts `mode="lexical"`, `"semantic"`, or `"hybrid"`. A
 
 Hybrid retrieval combines lexical and semantic ranks with Reciprocal Rank Fusion, `sum(1 / (60 + rank))`, rather than mixing their incomparable raw scores. Each component requests `min(60, 3 × final K)` candidates; the final Evidence score is an RRF score, higher is better, with both component ranks when present. Its two database rankings share one repeatable-read snapshot so concurrent ingestion cannot mix versions. Run `python -m api.retrieval_eval_cli --mode all` against a populated local corpus to compare the same cases and metrics. The CLI also accepts `lexical`, `semantic`, or `hybrid` individually. Semantic and hybrid modes call the configured query embedding provider, so they require its API key when using OpenAI. Fake-vector tests check mechanics, not semantic quality; real benchmark numbers require a populated corpus and real provider run. The public API and legacy RAG path remain unchanged.
 
+## Internal evidence-first answers
+
+`api.versioned_answer.VersionedAnswerService` can compose the internal retriever with `EvidenceFirstAnswerService`. The service assigns prompt-local IDs (`E1`, `E2`, ...), sends provenance and passage text as clearly delimited reference material, and requests structured claims or an abstention. It resolves each citation against the supplied Evidence and requires a non-empty, exact quotation present in that passage. Duplicate identical citations are collapsed. Any invalid claim rejects the whole answer; the human-readable answer is assembled only from accepted claims.
+
+With no retrieved Evidence, the service abstains without a model call. The model may also abstain with a reason and no claims. The optional OpenAI adapter uses the configured `GEN_MODEL` and requires `OPENAI_API_KEY`; offline tests use fake providers. Validation establishes genuine retrieved evidence IDs, exact quoted excerpts, and a citation for every returned claim. **It does not prove semantic entailment or factual truth.** This path is internal and is not connected to `/api/query`; the public demo still uses the legacy generator.
+
 Run backend tests:
 
 ```bash
