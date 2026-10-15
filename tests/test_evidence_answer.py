@@ -147,7 +147,7 @@ class EvidenceAnswerTests(unittest.TestCase):
         self.assertEqual(mapped["E1"], self.first)
         first_render = format_evidence(mapped)
         self.assertEqual(first_render, format_evidence(mapped))
-        blocks = [json.loads(line) for line in first_render.splitlines()]
+        blocks = json.loads(first_render)
         self.assertEqual([block["evidence_id"] for block in blocks], ["E1", "E2"])
         self.assertEqual(blocks[0]["snapshot_observed_at"], T1.isoformat())
         self.assertEqual(blocks[0]["canonical_url"], self.first.canonical_url)
@@ -169,7 +169,7 @@ class EvidenceAnswerTests(unittest.TestCase):
         fake_llm.with_structured_output.return_value.invoke.return_value = parsed
         adapter = OpenAIAnswerProvider(model="test-model", api_key="test-placeholder", timeout_seconds=12)
         with patch("langchain_openai.ChatOpenAI", return_value=fake_llm) as constructor:
-            self.assertEqual(adapter.generate("Question", "Evidence", "Instructions"), parsed)
+            self.assertEqual(adapter.generate("Question", "[]", "Instructions"), parsed)
         self.assertEqual(constructor.call_args.kwargs["timeout"], 12)
         self.assertEqual(constructor.call_args.kwargs["max_retries"], 2)
         fake_llm.with_structured_output.assert_called_once_with(StructuredAnswer, method="json_schema", strict=True)

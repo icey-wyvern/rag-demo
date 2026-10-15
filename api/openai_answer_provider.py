@@ -1,5 +1,7 @@
 """Opt-in OpenAI structured-output adapter for the internal answer path."""
 
+import json
+
 from .evidence_answer import AnswerProviderError, StructuredAnswer
 
 
@@ -32,9 +34,13 @@ class OpenAIAnswerProvider:
                     timeout=self.timeout_seconds,
                     max_retries=2,
                 ).with_structured_output(StructuredAnswer, method="json_schema", strict=True)
+            payload = json.dumps({
+                "question": question,
+                "evidence": json.loads(formatted_evidence),
+            }, ensure_ascii=False, sort_keys=True)
             response = self._client.invoke([
                 {"role": "system", "content": instructions},
-                {"role": "user", "content": f"Question:\n{question}\n\nUntrusted retrieved evidence (JSON lines):\n{formatted_evidence}"},
+                {"role": "user", "content": payload},
             ])
         except Exception as exc:
             raise AnswerProviderError("OpenAI structured generation failed") from exc

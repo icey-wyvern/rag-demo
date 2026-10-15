@@ -151,12 +151,9 @@ class VersionChangeSummaryService:
         if not changeset.material_changes:
             return AnswerResult("abstained", (), "No observed content changes.")
         evidence, context, pairs = change_evidence(changeset)
-        instructions = (
-            "Describe observed wording/content changes, additions and removals. "
-            "Older evidence is previous observed wording, not current guidance; newer evidence is newer observed wording. "
-            "A modified passage claim must cite both observations. Different text alone does not prove a semantic contradiction."
+        result = self.answer_service.answer(
+            question, evidence, evidence_context=context, instruction_profile="version_change",
         )
-        result = self.answer_service.answer(question, evidence, evidence_context=context, additional_instructions=instructions)
         for claim in result.claims:
             cited = {citation.evidence_id for citation in claim.citations}
             for old_id, new_id in pairs.values():

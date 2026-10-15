@@ -165,7 +165,7 @@ class VersionChangeTests(unittest.TestCase):
         answer = VersionChangeSummaryService(EvidenceFirstAnswerService(provider)).summarize(changes)
         self.assertEqual(answer.status, "answered")
         self.assertEqual([c.evidence.snapshot_id for c in answer.claims[0].citations], [OLD, NEW])
-        blocks = [json.loads(line) for line in provider.calls[0][1].splitlines()]
+        blocks = json.loads(provider.calls[0][1])
         self.assertEqual([block["version_change"]["observation_side"] for block in blocks], ["older", "newer"])
         self.assertEqual([block["version_change"]["change_kind"] for block in blocks], ["modified", "modified"])
         self.assertIn("previous observed wording", provider.calls[0][2].lower())

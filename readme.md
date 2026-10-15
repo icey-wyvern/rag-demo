@@ -96,6 +96,12 @@ With no retrieved Evidence, the service abstains without a model call. The model
 
 `VersionChangeSummaryService` optionally turns material changes into separate, explicitly labeled older/newer Evidence and reuses `EvidenceFirstAnswerService` for structured claims, prompt-local IDs, exact quote checks, and rejection of fabricated citations. A claim citing a modified passage must cite its older and newer sides. With no material changes it returns “No observed content changes.” without calling the provider. Textual change does **not** establish semantic contradiction; the model is instructed to describe differences and cite both relevant observations for a claimed reversal. The validator does not prove semantic entailment. Fixtures A and B are illustrative curated observations, not verified historical GOV.UK publication versions. This path is internal; `/api/query` and legacy RAG remain unchanged.
 
+## Hostile source content in internal answers
+
+The question, passage text, titles, and URLs are untrusted input. Application-owned instruction profiles are sent as system instructions; the provider's user message is one JSON object with a `question` string and an `evidence` array. Each evidence record is serialized by the JSON library with a prompt-local application-assigned ID, separate metadata, and unmodified passage text. Role-looking strings, markup, quotes, and newlines inside source text remain data. Version-change summaries use this same serializer with application-owned older/newer labels.
+
+The provider receives the selected question, evidence, fixed instructions, and structured-output settings; credentials are used only to configure the provider client and are not placed in prompt messages. After generation, the application rejects unknown IDs, missing citations, absent or altered quotes, malformed output, and contradictory status. The deterministic `tests/fixtures/hostile_evidence_cases.json` dataset and `python -m api.security_eval` exercise these rules with fake providers, including a valid answer *about* hostile-looking text. Keyword stripping is not the primary defence because it would delete legitimate source content and would not enforce the output contract. This is risk reduction and mechanical contract enforcement, not proof that a model is immune to prompt injection or that cited claims are true.
+
 Run backend tests:
 
 ```bash
