@@ -29,6 +29,8 @@ RUN pip install --no-cache-dir -r ./api/requirements.txt
 
 # App code
 COPY api ./api
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 
 # Copy built frontend into /app/static (served by FastAPI)
 RUN mkdir -p /app/static

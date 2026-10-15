@@ -48,6 +48,12 @@ Reset local corpus state:
 docker compose run --rm webapi python -m api.reset_cli --yes
 ```
 
+Apply the additive versioned corpus schema (not yet used by the API):
+
+```bash
+docker compose run --rm webapi alembic upgrade head
+```
+
 Run backend tests:
 
 ```bash

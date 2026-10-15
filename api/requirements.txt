@@ -1,6 +1,7 @@
 fastapi==0.115.11
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.39
+alembic==1.18.4
 psycopg[binary]==3.2.6
 pgvector==0.4.0
 langchain-openai==0.3.8
