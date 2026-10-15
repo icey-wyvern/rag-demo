@@ -49,7 +49,7 @@ def load_cases(path: Path = FIXTURE_PATH) -> tuple[SecurityCase, ...]:
     return cases
 
 
-def _evidence(case: SecurityCase) -> list[Evidence]:
+def evidence_for_case(case: SecurityCase) -> list[Evidence]:
     observed = datetime(2026, 10, 15, tzinfo=timezone.utc)
     return [Evidence(
         source_id=UUID(int=1), source_key="synthetic:security", source_title="Synthetic hostile-content fixture",
@@ -76,7 +76,7 @@ def evaluate_cases(cases: tuple[SecurityCase, ...]) -> SecurityEvaluationSummary
     for case in cases:
         try:
             answer = EvidenceFirstAnswerService(_FakeProvider(case.provider_response)).answer(
-                case.question, _evidence(case),
+                case.question, evidence_for_case(case),
             )
             outcome: Outcome = "abstained" if answer.status == "abstained" else "accepted"
             category = None
