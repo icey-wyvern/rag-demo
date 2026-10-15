@@ -1,6 +1,7 @@
 """HTTP integration of versioned retrieval and evidence-first generation."""
 
 import json
+import importlib.util
 import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -94,9 +95,9 @@ class QueryApiTests(unittest.TestCase):
         self.assertFalse(status.json()["is_ready"])
 
     def test_default_generate_is_hybrid_and_uses_real_validator(self):
-        with patch("api.vectorstore.similarity_search", side_effect=AssertionError("legacy retrieval called")):
-            with patch("api.generator.Generator.answer", side_effect=AssertionError("legacy generation called")):
-                resp = self.client.post("/api/query", json={"q": "  What should teams do?  "})
+        for module in ("api.ingest", "api.store", "api.vectorstore", "api.generator", "api.models"):
+            self.assertIsNone(importlib.util.find_spec(module))
+        resp = self.client.post("/api/query", json={"q": "  What should teams do?  "})
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(self.retriever.calls, [("What should teams do?", "hybrid", None, 5)])

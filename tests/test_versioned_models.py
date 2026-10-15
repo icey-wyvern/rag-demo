@@ -9,7 +9,7 @@ from sqlalchemy import DateTime, String, UniqueConstraint
 from sqlalchemy.orm import configure_mappers
 
 from api.db import Base
-from api import models, versioned_models  # noqa: F401 - register both schemas
+from api import versioned_models  # noqa: F401 - register canonical schema
 
 
 def unique_columns(table):
@@ -56,7 +56,7 @@ class VersionedModelTests(unittest.TestCase):
         self.assertEqual(foreign_key.referred_table.name, "source_snapshots")
         self.assertEqual(foreign_key.ondelete, "RESTRICT")
 
-    def test_timestamps_are_timezone_aware_and_legacy_tables_remain(self):
+    def test_timestamps_are_timezone_aware_and_metadata_is_canonical(self):
         timestamp_columns = {
             "sources": ["created_at"],
             "source_snapshots": [
@@ -71,9 +71,10 @@ class VersionedModelTests(unittest.TestCase):
                     column = table.c[column_name]
                     self.assertIsInstance(column.type, DateTime)
                     self.assertTrue(column.type.timezone)
-        self.assertTrue({"documents", "chunks", "corpus_state"} <= set(Base.metadata.tables))
+        self.assertEqual(set(Base.metadata.tables),
+                         {"sources", "source_snapshots", "passages", "passage_embeddings"})
 
-    def test_alembic_upgrade_renders_only_additive_tables(self):
+    def test_alembic_upgrade_renders_legacy_cleanup(self):
         repository = Path(__file__).resolve().parents[1]
         config = Config(str(repository / "alembic.ini"))
         config.set_main_option("script_location", str(repository / "migrations"))
@@ -84,8 +85,7 @@ class VersionedModelTests(unittest.TestCase):
         for table in ("sources", "source_snapshots", "passages"):
             self.assertIn(f"CREATE TABLE {table}", sql)
         for legacy_table in ("documents", "chunks", "corpus_state"):
-            self.assertNotIn(f"ALTER TABLE {legacy_table}", sql)
-            self.assertNotIn(f"DROP TABLE {legacy_table}", sql)
+            self.assertIn(f"DROP TABLE IF EXISTS {legacy_table}", sql)
 
 
 if __name__ == "__main__":

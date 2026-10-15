@@ -113,8 +113,12 @@ class PostgreSQLRagIntegrationTests(unittest.TestCase):
             with patch.object(config, "_settings", replace(config.get_settings(), DATABASE_URL=raw)):
                 alembic = Config("alembic.ini")
                 command.upgrade(alembic, "head")
+                with cls.engine.connect() as connection:
+                    cls.initial_head_tables = set(inspect(connection).get_table_names())
                 # Exercise the full reversible chain before fixture data exists.
                 command.downgrade(alembic, "base")
+                with cls.engine.connect() as connection:
+                    cls.downgraded_legacy_tables = set(inspect(connection).get_table_names())
                 command.upgrade(alembic, "head")
 
             with cls.sessions() as session:
@@ -157,9 +161,14 @@ class PostgreSQLRagIntegrationTests(unittest.TestCase):
     def test_01_migration_schema_indexes_constraints_and_dimension(self):
         with self.engine.connect() as connection:
             self.assertEqual(connection.scalar(text("SELECT extname FROM pg_extension WHERE extname='vector'")), "vector")
-            self.assertEqual(connection.scalar(text("SELECT version_num FROM alembic_version")), "20261015_03")
+            self.assertEqual(connection.scalar(text("SELECT version_num FROM alembic_version")), "20261015_04")
             tables = set(inspect(connection).get_table_names())
             self.assertTrue({"sources", "source_snapshots", "passages", "passage_embeddings"} <= tables)
+            self.assertFalse({"documents", "chunks", "corpus_state"} & tables)
+            self.assertTrue({"sources", "source_snapshots", "passages", "passage_embeddings"}
+                            <= self.initial_head_tables)
+            self.assertFalse({"documents", "chunks", "corpus_state"} & self.initial_head_tables)
+            self.assertTrue({"documents", "chunks", "corpus_state"} <= self.downgraded_legacy_tables)
             indexes = {row["name"]: row for row in inspect(connection).get_indexes("passages")}
             self.assertIn("ix_passages_text_english_fts", indexes)
             self.assertEqual(indexes["ix_passages_text_english_fts"]["dialect_options"]["postgresql_using"], "gin")

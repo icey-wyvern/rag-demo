@@ -1,4 +1,4 @@
-"""Additive provenance models; the current RAG path still uses Document and Chunk."""
+"""Canonical immutable source, snapshot, passage, and embedding models."""
 
 import uuid
 

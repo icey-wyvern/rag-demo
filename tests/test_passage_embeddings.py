@@ -228,7 +228,8 @@ class ModelAndProviderTests(unittest.TestCase):
         self.assertEqual(foreign_key.ondelete, "CASCADE")
         self.assertEqual(foreign_key.column.table.name, "passages")
         self.assertIn("passage_embeddings", Base.metadata.tables)
-        self.assertTrue({"documents", "chunks", "sources", "source_snapshots", "passages"} <= set(Base.metadata.tables))
+        self.assertEqual(set(Base.metadata.tables),
+                         {"sources", "source_snapshots", "passages", "passage_embeddings"})
 
     def test_sql_missing_query_uses_identity_and_skip_locked(self):
         session = Mock()

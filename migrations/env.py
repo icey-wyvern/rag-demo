@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, pool
 
 from api.config import get_settings
 from api.db import Base
-from api import models, versioned_models  # noqa: F401 - register all mapped tables
+from api import versioned_models  # noqa: F401 - register canonical mapped tables
 
 
 config = context.config

@@ -2,8 +2,6 @@
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- App role (idempotent)
 DO $$
@@ -13,13 +11,5 @@ BEGIN
 	END IF;
 END$$;
 
--- Grants
-GRANT USAGE ON SCHEMA public TO app_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-GRANT USAGE, SELECT ON SEQUENCES TO app_user;
+-- Alembic runs as app_user and owns the application tables it creates.
+GRANT USAGE, CREATE ON SCHEMA public TO app_user;
