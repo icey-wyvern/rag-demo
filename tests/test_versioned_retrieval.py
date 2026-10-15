@@ -136,6 +136,8 @@ class TemporalRetrievalTests(unittest.TestCase):
         self.assertEqual(result[0].retrieved_url, "https://www.gov.uk/api/content/example")
         self.assertEqual(result[0].score, 0.75)
         self.assertEqual(result[0].rank, 1)
+        self.assertEqual(result[0].score_kind, "lexical_ts_rank_cd")
+        self.assertEqual(result[0].lexical_rank, 1)
         self.assertEqual(session.params, {"question": "service", "as_of": T1, "k": 3})
 
 

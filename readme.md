@@ -64,7 +64,7 @@ The small fixtures under `tests/fixtures` use trimmed fields and guidance text f
 
 ## Versioned lexical retrieval and evaluation
 
-`api.versioned_retriever.VersionedRetriever` searches only the new `passages` table. PostgreSQL English full-text search (`websearch_to_tsquery`, `to_tsvector`, `ts_rank_cd`) provides a lexical baseline and visible scores before any semantic or hybrid retrieval is added. A GIN expression index supports passage matching. This is an internal Python interface; `/api/query` still uses the legacy corpus.
+`api.versioned_retriever.VersionedRetriever` searches the new versioned corpus. Its lexical baseline uses PostgreSQL English full-text search (`websearch_to_tsquery`, `to_tsvector`, `ts_rank_cd`) over `passages`, with visible scores and a GIN expression index. This is an internal Python interface; `/api/query` still uses the legacy corpus.
 
 Without `as_of`, each source contributes only its latest locally observed snapshot. With a timezone-aware `as_of`, each contributes its latest snapshot observed at or before that time. Ties use snapshot creation time and ID. This reconstructs what this corpus had observed, not arbitrary historical GOV.UK state. Source publication/update times are provenance, not eligibility cutoffs.
 
@@ -74,7 +74,13 @@ After populating the versioned PostgreSQL corpus, run `python -m api.retrieval_e
 
 `passage_embeddings` stores derived vectors separately from immutable passage text and hashes. Each row belongs to one passage and one provider/model pair, so reruns skip existing vectors and a different model can coexist without replacing history. The current column is `vector(1536)` and the indexer rejects other dimensions; this supports the configured `text-embedding-3-small` default, not arbitrary vector sizes.
 
-After applying Alembic migrations and ingesting versioned passages, run `python -m api.passage_embedding_cli` with a configured `OPENAI_API_KEY`. The command uses the configured `EMBED_MODEL`, indexes missing passages in batches, and reports already indexed, newly indexed, and remaining counts. Each batch commits atomically; a failed batch rolls back while earlier batches remain. This is optional and makes OpenAI calls when run. The versioned lexical retriever and `/api/query` do not use these embeddings yet.
+After applying Alembic migrations and ingesting versioned passages, run `python -m api.passage_embedding_cli` with a configured `OPENAI_API_KEY`. The command uses the configured `EMBED_MODEL`, indexes missing passages in batches, and reports already indexed, newly indexed, and remaining counts. Each batch commits atomically; a failed batch rolls back while earlier batches remain. This is optional and makes OpenAI calls when run. `/api/query` does not use these embeddings.
+
+## Internal retrieval modes
+
+The versioned retriever accepts `mode="lexical"`, `"semantic"`, or `"hybrid"`. All modes select the same latest locally observed snapshot per source, with the same optional observed-as-of cutoff described above. Semantic retrieval embeds the question through the configured provider, searches only stored embeddings for that provider/model, and orders eligible passages by exact pgvector cosine distance (`<=>`); its Evidence score is **distance, lower is better**. No ANN index is added yet: corpus scale and index tuning have not been measured.
+
+Hybrid retrieval combines lexical and semantic ranks with Reciprocal Rank Fusion, `sum(1 / (60 + rank))`, rather than mixing their incomparable raw scores. Each component requests `min(60, 3 × final K)` candidates; the final Evidence score is an RRF score, higher is better, with both component ranks when present. Its two database rankings share one repeatable-read snapshot so concurrent ingestion cannot mix versions. Run `python -m api.retrieval_eval_cli --mode all` against a populated local corpus to compare the same cases and metrics. The CLI also accepts `lexical`, `semantic`, or `hybrid` individually. Semantic and hybrid modes call the configured query embedding provider, so they require its API key when using OpenAI. Fake-vector tests check mechanics, not semantic quality; real benchmark numbers require a populated corpus and real provider run. The public API and legacy RAG path remain unchanged.
 
 Run backend tests:
 

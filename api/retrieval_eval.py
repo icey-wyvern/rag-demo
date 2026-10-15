@@ -13,6 +13,11 @@ class Retriever(Protocol):
     def search(self, question: str, *, as_of: datetime | None = None, k: int = 5) -> list[Evidence]: ...
 
 
+class ModeRetriever(Protocol):
+    def search(self, question: str, *, mode: str = "lexical", as_of: datetime | None = None,
+               k: int = 5) -> list[Evidence]: ...
+
+
 @dataclass(frozen=True)
 class ExpectedEvidence:
     source_key: str
@@ -48,6 +53,12 @@ class EvalSummary:
     temporal_accuracy: float | None
     no_evidence_accuracy: float | None
     failed_case_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ModeComparison:
+    summaries: dict[str, EvalSummary]
+    versus_lexical: dict[str, dict[str, str]]
 
 
 def load_cases(path: str | Path) -> list[EvalCase]:
@@ -152,3 +163,37 @@ def evaluate(retriever: Retriever, cases: list[EvalCase]) -> EvalSummary:
         no_evidence_accuracy=no_evidence_correct / no_evidence if no_evidence else None,
         failed_case_ids=tuple(failed),
     )
+
+
+def evaluate_mode(retriever: ModeRetriever, cases: list[EvalCase], mode: str) -> EvalSummary:
+    if mode not in ("lexical", "semantic", "hybrid"):
+        raise ValueError("Unknown retrieval mode")
+
+    class SelectedMode:
+        def search(self, question: str, *, as_of: datetime | None = None, k: int = 5) -> list[Evidence]:
+            return retriever.search(question, mode=mode, as_of=as_of, k=k)
+
+    return evaluate(SelectedMode(), cases)
+
+
+def compare_modes(retriever: ModeRetriever, cases: list[EvalCase]) -> ModeComparison:
+    summaries = {mode: evaluate_mode(retriever, cases, mode)
+                 for mode in ("lexical", "semantic", "hybrid")}
+    metrics = ("recall_at_1", "recall_at_3", "mrr", "temporal_accuracy", "no_evidence_accuracy")
+    baseline = summaries["lexical"]
+    comparisons = {}
+    for mode in ("semantic", "hybrid"):
+        comparisons[mode] = {}
+        for metric in metrics:
+            base_value = getattr(baseline, metric)
+            value = getattr(summaries[mode], metric)
+            if base_value is None or value is None:
+                status = "unavailable"
+            elif abs(value - base_value) < 1e-12:
+                status = "match"
+            elif value > base_value:
+                status = "improve"
+            else:
+                status = "regress"
+            comparisons[mode][metric] = status
+    return ModeComparison(summaries=summaries, versus_lexical=comparisons)

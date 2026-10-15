@@ -1,11 +1,9 @@
 """Transactional batch indexing of immutable versioned passages."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
-import math
-from numbers import Real
 
-from .passage_embedding_provider import EMBEDDING_DIMENSIONS, EmbeddingProvider
+from .passage_embedding_provider import EMBEDDING_DIMENSIONS, EmbeddingProvider, validate_embedding_vectors
 from .passage_embedding_store import PassageEmbeddingStore
 
 
@@ -22,34 +20,6 @@ class EmbeddingIndexResult:
     newly_indexed: int
     remaining: int
     batches: int
-
-
-def _validated_vectors(
-    vectors: Sequence[Sequence[float]], expected_count: int,
-) -> list[list[float]]:
-    try:
-        vectors = list(vectors)
-    except (TypeError, ValueError) as exc:
-        raise EmbeddingIndexError("Provider returned invalid vectors") from exc
-    if len(vectors) != expected_count:
-        raise EmbeddingIndexError(f"Provider returned {len(vectors)} vectors for {expected_count} passages")
-    validated = []
-    for vector in vectors:
-        try:
-            values = list(vector)
-        except (TypeError, ValueError) as exc:
-            raise EmbeddingIndexError("Provider returned a non-vector result") from exc
-        if len(values) != EMBEDDING_DIMENSIONS:
-            raise EmbeddingIndexError(f"Embedding must have {EMBEDDING_DIMENSIONS} dimensions")
-        try:
-            converted = [float(value) if isinstance(value, Real) and not isinstance(value, bool) else float("nan")
-                         for value in values]
-        except (OverflowError, TypeError, ValueError) as exc:
-            raise EmbeddingIndexError("Embedding contains a non-finite or non-numeric value") from exc
-        if any(not math.isfinite(value) for value in converted):
-            raise EmbeddingIndexError("Embedding contains a non-finite or non-numeric value")
-        validated.append(converted)
-    return validated
 
 
 class PassageEmbeddingIndexer:
@@ -91,7 +61,10 @@ class PassageEmbeddingIndexer:
                     vectors = self.provider.embed_texts([passage.text for passage in passages])
                 except Exception as exc:
                     raise EmbeddingIndexError("Embedding provider failed for batch") from exc
-                validated = _validated_vectors(vectors, len(passages))
+                try:
+                    validated = validate_embedding_vectors(vectors, len(passages))
+                except ValueError as exc:
+                    raise EmbeddingIndexError(str(exc)) from exc
                 store.add_batch(
                     self.provider.provider_id,
                     self.provider.model_id,

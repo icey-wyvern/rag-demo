@@ -25,3 +25,6 @@ class Evidence:
     retrieval_method: str
     score: float
     rank: int
+    score_kind: str = "lexical_ts_rank_cd"
+    lexical_rank: int | None = None
+    semantic_rank: int | None = None
