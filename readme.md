@@ -5,7 +5,7 @@ A retrieval-augmented generation demo over a seeded set of GOV.UK strategy and r
 ## Features
 
 - Semantic retrieval over a fixed GOV.UK corpus
-- Grounded answer generation with source citations
+- Answer generation from retrieved chunks, with links to retrieved source documents
 - Chunk inspection mode for debugging retrieval quality
 - Recoverable corpus ingestion with explicit readiness/status reporting
 - Single-command local startup with Docker Compose
@@ -20,8 +20,8 @@ A retrieval-augmented generation demo over a seeded set of GOV.UK strategy and r
 
 ## Local development
 
-1. Set `OPENAI_API_KEY` in `.env`.
-2. Optional: place local copies of the seeded PDFs in [docs/README.md](/c:/osrs-py/gvt-rag/docs/README.md) to avoid network downloads during ingestion.
+1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY`.
+2. Optional: place local copies of the seeded PDFs in [docs/README.md](docs/README.md) to avoid network downloads during ingestion.
 3. Start the stack:
 
 ```bash
@@ -31,6 +31,8 @@ docker compose up --build
 4. Open `http://localhost:8080`.
 
 `webapi` serves the UI immediately. `ingest` builds the retrieval corpus in the background. The UI polls corpus status and unlocks querying once ingestion is complete.
+
+PostgreSQL runs locally through Docker Compose. Initial ingestion may download the GOV.UK PDFs. OpenAI is required for embeddings, and generative queries also use OpenAI, so the demo is not fully offline.
 
 ## Commands
 
@@ -52,11 +54,11 @@ Run backend tests:
 python -m unittest discover -s tests
 ```
 
-Install frontend dependencies and run checks:
+Install frontend dependencies from the tracked lockfile and run checks:
 
 ```bash
 cd web
-npm install
+npm ci
 npm run build
 npm run test
 ```
@@ -66,7 +68,7 @@ npm run test
 - `api/main.py`: FastAPI endpoints and corpus readiness handling
 - `api/ingest.py`: recoverable corpus ingestion pipeline
 - `api/store.py`: database persistence for corpus state, documents, chunks, and vector search
-- `api/generator.py`: grounded answer generation over retrieved chunks
+- `api/generator.py`: answer generation from retrieved chunks and source-link assembly
 - `web/src`: status-aware chat UI
 
 ## Operational notes
@@ -79,6 +81,5 @@ npm run test
 ## Notes
 
 - On first startup, the `ingest` service downloads the seeded PDFs if local copies are not present.
-- Ingestion is idempotent at the document level and can be re-run safely.
+- Re-running ingestion replaces the indexed chunks for each seeded document.
 - If ingestion fails, the API still starts and surfaces the error through `GET /health`, `GET /api/status`, and the UI status banner.
-- The frontend lockfile is intentionally generated as part of the final environment bootstrap step if it is not yet present in this checkout.
