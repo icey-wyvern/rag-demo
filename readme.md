@@ -125,7 +125,25 @@ The UI uses Hybrid retrieval by default; its selector also offers Semantic and L
 
 Generated queries run versioned retrieval followed by evidence-first structured generation and exact citation/quote validation. The response retains the frontend's `answer`, `citations` (source links with `title`, `url`, `page`), and `chunks` (retrieved passage snippets). It adds `status`, validated `claims`, cited `sources`, passage/snapshot provenance, and small retrieval metadata. Source links come only from cited passages, deduplicated by snapshot/passage; `chunks` are explicitly retrieval inspection data. Abstention returns HTTP 200 with a usable reason and no source links. Chunks mode retrieves versioned passages without calling the generation provider. Provider, validation, and retrieval failures return sanitized errors rather than raw exception text.
 
-`/api/status` keeps the frontend's readiness fields but now reports versioned table state, current passage availability, matching OpenAI embedding availability, and provider configuration. A missing versioned schema reports pending; an unavailable database returns 503. The legacy tables, vectorstore, generator, and ingestion code remain for a later cleanup slice, but `/api/query` no longer uses them. HTTP tests inject fake retrievers and providers; real PostgreSQL/pgvector end-to-end retrieval has not been exercised for this migration.
+`/api/status` keeps the frontend's readiness fields but now reports versioned table state, current passage availability, matching OpenAI embedding availability, and provider configuration. A missing versioned schema reports pending; an unavailable database returns 503. The legacy tables, vectorstore, generator, and ingestion code remain for a later cleanup slice, but `/api/query` no longer uses them. Fast HTTP tests inject fake retrievers and providers; the opt-in PostgreSQL suite below is designed to exercise the real database path.
+
+## PostgreSQL integration tests
+
+Fast tests use the repository environment and need no database:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
+
+On Windows, with an already available Docker engine and repository-local `.venv`, run the isolated suite with:
+
+```powershell
+.\run-postgres-integration.ps1
+```
+
+The runner uses `docker-compose.integration.yaml` with the repository's `pgvector/pgvector:pg16` image. It starts only `integration-db` under the separate `gvt-rag-integration` Compose project, with test-only credentials, a loopback-only port, and tmpfs storage. It refuses to reuse an existing integration container and removes only its own service after the tests. The normal `db` service, `appdb`, and `db-data` volume are never used. The tests require an explicit `RAG_TEST_DATABASE_URL`, verify its test-only name/user/host/password and the connected database identity, and refuse a nonempty database before creating the vector extension or migrating. Without that variable, database tests skip under ordinary discovery.
+
+The integration suite runs Alembic from empty to HEAD, down to base, and back to HEAD before inserting fixtures. It checks tables, constraints, the lexical GIN index, and `vector(1536)`; then it exercises real versioned ingestion, idempotent fake-vector indexing, PostgreSQL full-text search, pgvector cosine ranking, RRF, temporal snapshot selection, readiness, and in-process `/api/query` responses. All content and model responses are deterministic local fixtures. It makes no OpenAI, Azure, or GOV.UK application calls. This validates persistence and query wiring, not live provider behaviour or the factual quality of a generated answer. The dedicated CI job runs the same suite against a fresh `pgvector/pgvector:pg16` service without application secrets.
 
 Run backend tests:
 

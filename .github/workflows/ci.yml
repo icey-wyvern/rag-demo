@@ -17,6 +17,34 @@ jobs:
       - name: Run backend tests
         run: python -m unittest discover -s tests
 
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      integration-db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rag_test
+          POSTGRES_PASSWORD: rag_test_password
+          POSTGRES_DB: rag_integration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rag_test -d rag_integration_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      RAG_TEST_DATABASE_URL: postgresql+psycopg://rag_test:rag_test_password@127.0.0.1:5432/rag_integration_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: python -m pip install --upgrade pip && pip install -r api/requirements.txt
+      - name: Run Alembic migration and PostgreSQL integration tests
+        run: python -m unittest discover -s tests/integration -v
+
   frontend:
     runs-on: ubuntu-latest
     if: ${{ hashFiles('web/package-lock.json') != '' }}
