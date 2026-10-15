@@ -62,6 +62,14 @@ The Content API's `content_id` supplies stable logical identity. The command ext
 
 The small fixtures under `tests/fixtures` use trimmed fields and guidance text from a public Content API response observed on 15 October 2026. The two bodies are curated subsets for deterministic change tests, not a claim that both were historically published as shown or authoritative current content. Tests use these fixtures without network access. The configured paths have not all been live validated.
 
+## Versioned lexical retrieval and evaluation
+
+`api.versioned_retriever.VersionedRetriever` searches only the new `passages` table. PostgreSQL English full-text search (`websearch_to_tsquery`, `to_tsvector`, `ts_rank_cd`) provides a lexical baseline and visible scores before any semantic or hybrid retrieval is added. A GIN expression index supports passage matching. This is an internal Python interface; `/api/query` still uses the legacy corpus.
+
+Without `as_of`, each source contributes only its latest locally observed snapshot. With a timezone-aware `as_of`, each contributes its latest snapshot observed at or before that time. Ties use snapshot creation time and ID. This reconstructs what this corpus had observed, not arbitrary historical GOV.UK state. Source publication/update times are provenance, not eligibility cutoffs.
+
+After populating the versioned PostgreSQL corpus, run `python -m api.retrieval_eval_cli` for the small current-source dataset, or pass `--dataset PATH` for a corpus-specific dataset. The separate `eval/fixture_retrieval_cases.json` has seven deterministic scenarios, including illustrative observations A and B at 15 and 16 October 2026. It requires a matching isolated fixture corpus for a meaningful database run; its two bodies are not verified historical publications. The evaluator reports Recall@1, Recall@3, and MRR over cases with expected evidence; cases expecting none pass only when retrieval returns no results and have a separate accuracy. Temporal accuracy covers `as_of` cases, including expected absence. Failed case IDs are reported. No benchmark number is claimed here.
+
 Run backend tests:
 
 ```bash

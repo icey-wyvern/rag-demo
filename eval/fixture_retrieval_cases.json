@@ -1,0 +1,42 @@
+[
+  {
+    "id": "exact-legislative-constraints",
+    "query": "legislative constraints",
+    "expected": [{"source_key": "govuk:2b578bcd-775b-45d0-8198-e78507594b9c", "required_terms": ["legislative constraints"]}]
+  },
+  {
+    "id": "wording-variation",
+    "query": "related public services",
+    "expected": [{"source_key": "govuk:2b578bcd-775b-45d0-8198-e78507594b9c"}]
+  },
+  {
+    "id": "multiple-relevant-sources",
+    "query": "service teams users",
+    "expected": [
+      {"source_key": "govuk:2b578bcd-775b-45d0-8198-e78507594b9c"},
+      {"source_key": "fixture:parallel-service"}
+    ]
+  },
+  {
+    "id": "as-of-older-observation",
+    "query": "legislative constraints",
+    "as_of": "2026-10-15T12:30:00Z",
+    "expected": [{"source_key": "govuk:2b578bcd-775b-45d0-8198-e78507594b9c", "snapshot_sha256": "001e9ba0b779c4cc33f903258f3ae49ddee898e9c0c415a12a45fc0003eb556e"}]
+  },
+  {
+    "id": "current-latest-observation",
+    "query": "emerging technologies AI",
+    "expected": [{"source_key": "govuk:2b578bcd-775b-45d0-8198-e78507594b9c", "snapshot_sha256": "5175c621203d0f8c20b450a4a39ba5e6beb2e9325e9c9bb6b7c0bbd26af6b691"}]
+  },
+  {
+    "id": "before-source-first-observed",
+    "query": "legislative constraints",
+    "as_of": "2026-10-14T23:59:59Z",
+    "expected": []
+  },
+  {
+    "id": "no-relevant-evidence",
+    "query": "quantum banana architecture",
+    "expected": []
+  }
+]

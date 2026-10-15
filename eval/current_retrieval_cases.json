@@ -1,0 +1,17 @@
+[
+  {
+    "id": "current-legislative-constraints",
+    "query": "legislative constraints",
+    "expected": [{"source_key": "govuk:2b578bcd-775b-45d0-8198-e78507594b9c"}]
+  },
+  {
+    "id": "current-related-services",
+    "query": "related services",
+    "expected": [{"source_key": "govuk:2b578bcd-775b-45d0-8198-e78507594b9c"}]
+  },
+  {
+    "id": "current-no-evidence",
+    "query": "quantum banana architecture",
+    "expected": []
+  }
+]

@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Column, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint, func, literal_column
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -61,7 +61,14 @@ class SourceSnapshot(Base):
 
 class Passage(Base):
     __tablename__ = "passages"
-    __table_args__ = (UniqueConstraint("snapshot_id", "ordinal", name="uq_passages_snapshot_ordinal"),)
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "ordinal", name="uq_passages_snapshot_ordinal"),
+        Index(
+            "ix_passages_text_english_fts",
+            func.to_tsvector(literal_column("'english'"), literal_column("text")),
+            postgresql_using="gin",
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     snapshot_id = Column(UUID(as_uuid=True), ForeignKey("source_snapshots.id", name="fk_passages_snapshot", ondelete="RESTRICT"), nullable=False)
