@@ -39,7 +39,7 @@ docker compose run --rm webapi python -m api.passage_embedding_cli
 
 `webapi` serves the UI immediately. The UI polls versioned-corpus status and unlocks its default hybrid queries after current passages, matching embeddings, and an OpenAI provider configuration exist. The separate `ingest` Compose service still builds the legacy PDF corpus and is not used by `/api/query`.
 
-PostgreSQL runs locally through Docker Compose. Versioned acquisition calls the GOV.UK Content API, and embedding/indexing and generated queries use OpenAI; this deployment path has not been live validated in this slice. Lexical passage queries can run without embeddings if versioned passages exist, though the unchanged frontend waits for default hybrid readiness.
+PostgreSQL runs locally through Docker Compose. Versioned acquisition calls the GOV.UK Content API, and embedding/indexing and generated queries use OpenAI; this deployment path has not been live validated in this slice. Lexical passage queries can run without embeddings if versioned passages exist, and the UI enables Lexical when those passages are ready.
 
 ## Commands
 
@@ -118,6 +118,8 @@ The generation report distinguishes answered, abstained, and rejected. Status ac
 The dataset deliberately includes validly cited answers using the wrong source or observation; these fail expected-evidence or temporal checks while citation validity stays intact. Because the runner receives evidence directly, it reports evidence-selection and version diagnostics, **not** retrieval failures. Its `as_of` field is evaluation context: it does not run retrieval, and historical wording means what this local corpus had observed by that time, not a verified historical GOV.UK publication. The fixtures are synthetic or illustrative. This framework checks application behaviour, citation contracts, required evidence use, and expected rejections; it does not prove semantic entailment, objective truth, answer completeness, or style. No LLM judge or external model call is used.
 
 ## Public query API
+
+The UI uses Hybrid retrieval by default; its selector also offers Semantic and Lexical. An optional local date/time is converted to a timezone-aware observed-as-of instant before the request. This selects the latest version the local corpus had observed by that time, not a guaranteed historical GOV.UK state. Generated answers display validated claims with their exact cited quotes, source links, observation times, and available source update times. Abstention is shown explicitly without supporting-source cards. Chunks only remains available to inspect retrieved passages; those passages are labeled as retrieval results, not answer citations.
 
 `POST /api/query` accepts the existing `{ "q": "...", "mode": "generate" | "chunks" }` request (or `question` instead of `q`). `retrieval_mode` defaults to `hybrid` and also accepts `lexical` or `semantic`; `k` defaults to 5. Optional `as_of` must include a timezone and selects the latest version this corpus had observed at or before that instant. Invalid options get a 4xx response. Hybrid/semantic requests fail clearly if the matching semantic index is unavailable; there is no silent lexical or legacy fallback.
 

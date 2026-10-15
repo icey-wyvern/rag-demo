@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { ChatComposer } from "./components/ChatComposer";
 import { ChatMessages } from "./components/ChatMessages";
 import { StatusBanner } from "./components/StatusBanner";
-import { fetchCorpusStatus, queryApi } from "./lib/api";
-import type { ChatMessage, CorpusStatus, Mode } from "./types";
+import { ApiError, fetchCorpusStatus, localAsOfToIso, queryApi } from "./lib/api";
+import type { ChatMessage, CorpusStatus, Mode, RetrievalMode } from "./types";
 
 const initialMessages: ChatMessage[] = [{ id: 1, role: "assistant", kind: "system" }];
 
@@ -16,12 +16,18 @@ function nextMessageId(offset = 0): number {
 function App() {
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<Mode>("generate");
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("hybrid");
+  const [asOfLocal, setAsOfLocal] = useState("");
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [corpusStatus, setCorpusStatus] = useState<CorpusStatus | null>(null);
   const [statusError, setStatusError] = useState("");
+  const corpusReady = retrievalMode === "lexical"
+    ? Boolean(corpusStatus?.versioned?.lexical_ready)
+    : Boolean(corpusStatus?.is_ready);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const lastUserMessageRef = useRef<HTMLDivElement | null>(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +41,7 @@ function App() {
         }
       } catch (error) {
         if (!cancelled) {
-          setStatusError(error instanceof Error ? error.message : "Unable to reach the API.");
+          setStatusError(error instanceof ApiError ? error.message : "Unable to reach the API.");
         }
       }
     }
@@ -54,9 +60,10 @@ function App() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const trimmed = q.trim();
-    if (!trimmed || loading || !corpusStatus?.is_ready) {
+    if (!trimmed || loading || submittingRef.current || !corpusReady) {
       return;
     }
+    submittingRef.current = true;
 
     setMessages((prev) => [
       ...prev,
@@ -70,25 +77,25 @@ function App() {
     setLoading(true);
 
     try {
-      const result = await queryApi(trimmed, mode);
+      const result = await queryApi(trimmed, mode, retrievalMode, localAsOfToIso(asOfLocal));
       const nextMessages: ChatMessage[] = [];
 
-      if (mode === "generate" && result.answer) {
+      if (mode === "generate" && (result.status === "answered" || result.status === "abstained")) {
         nextMessages.push({
           id: nextMessageId(1),
           role: "assistant",
           kind: "answer",
           content: result.answer,
-          citations: result.citations,
+          result,
         });
       }
 
-      if (result.chunks.length > 0) {
+      if (mode === "chunks") {
         nextMessages.push({
           id: nextMessageId(2),
           role: "assistant",
           kind: "chunks",
-          chunks: result.chunks,
+          result,
         });
       }
 
@@ -107,11 +114,12 @@ function App() {
         {
           id: nextMessageId(),
           role: "error",
-          content: error instanceof Error ? error.message : "Something went wrong talking to the API.",
+          content: error instanceof ApiError ? error.message : "Something went wrong talking to the API.",
         },
       ]);
     } finally {
       setLoading(false);
+      submittingRef.current = false;
     }
   }
 
@@ -142,7 +150,7 @@ function App() {
     <main className="app-root">
       <header>
         <h1>GOV.UK RAG</h1>
-        <p className="subtitle">Ask grounded questions about the seeded GOV.UK policy and resilience documents.</p>
+        <p className="subtitle">Ask about locally observed GOV.UK guidance, with evidence for each answer.</p>
       </header>
 
       <StatusBanner status={corpusStatus} statusError={statusError} />
@@ -156,10 +164,14 @@ function App() {
 
         <ChatComposer
           mode={mode}
+          retrievalMode={retrievalMode}
+          asOfLocal={asOfLocal}
           loading={loading}
           question={q}
-          corpusReady={Boolean(corpusStatus?.is_ready)}
+          corpusReady={corpusReady}
           onModeChange={setMode}
+          onRetrievalModeChange={setRetrievalMode}
+          onAsOfLocalChange={setAsOfLocal}
           onQuestionChange={setQ}
           onSubmit={handleSubmit}
         />

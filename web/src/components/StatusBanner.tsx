@@ -10,15 +10,16 @@ function statusMessage(status: CorpusStatus | null): string {
     return "Checking corpus status.";
   }
   if (status.status === "ready") {
-    return `Corpus ready. Indexed ${status.documents_ready} of ${status.documents_total} documents.`;
+    const count = status.versioned?.sources ?? status.documents_total;
+    return `Versioned corpus ready. ${count} ${count === 1 ? "source" : "sources"} and ${status.versioned?.current_passages ?? 0} current passages available.`;
   }
   if (status.status === "running") {
-    return `Corpus ingestion in progress: ${status.documents_ready} of ${status.documents_total} documents indexed.`;
+    return `Versioned corpus setup in progress: ${status.versioned?.current_passages ?? 0} current passages, ${status.versioned?.embedded_passages ?? 0} embeddings.${status.versioned?.lexical_ready ? " Lexical retrieval is available." : ""}`;
   }
   if (status.status === "error") {
-    return status.last_error || "Corpus ingestion failed.";
+    return status.last_error || "Versioned corpus is not ready for default hybrid queries.";
   }
-  return "Corpus has not been built yet. Start the ingest service to prepare retrieval data.";
+  return "Versioned corpus is not ready yet.";
 }
 
 export function StatusBanner({ status, statusError }: StatusBannerProps) {
@@ -30,12 +31,12 @@ export function StatusBanner({ status, statusError }: StatusBannerProps) {
         : "status-banner-pending";
 
   return (
-    <section className={`status-banner ${statusClass}`}>
+    <section className={`status-banner ${statusClass}`} role="status">
       <strong>Corpus status</strong>
       <p>{statusError || statusMessage(status)}</p>
       {!statusError && status?.status !== "ready" && (
         <p className="status-banner-note">
-          Run `docker compose up --build` and wait for the `ingest` service to finish. The page will update automatically.
+          Prepare the versioned guidance corpus and embeddings. This status updates automatically.
         </p>
       )}
     </section>

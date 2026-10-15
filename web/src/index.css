@@ -171,6 +171,89 @@ h1 {
 	border-color: rgba(34, 197, 94, 0.5);
 }
 
+.chat-bubble-abstained {
+	border-color: rgba(250, 204, 21, 0.5);
+}
+
+.answer-text {
+	font-size: 1.05rem;
+}
+
+.query-context,
+.inspection-note,
+.evidence-dates,
+.provenance-details {
+	color: #aebbd0;
+	font-size: 0.82rem;
+}
+
+.evidence-dates {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 1rem;
+}
+
+.answer-evidence {
+	border-top: 1px solid rgba(148, 163, 184, 0.25);
+	margin-top: 1rem;
+	padding-top: 0.75rem;
+}
+
+.answer-evidence h3 {
+	font-size: 0.95rem;
+	margin: 0 0 0.5rem;
+}
+
+.claim-list {
+	margin: 0;
+	padding-left: 1.25rem;
+}
+
+.claim-item {
+	margin-bottom: 0.8rem;
+}
+
+.claim-item > p {
+	margin: 0.25rem 0;
+}
+
+.evidence-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.evidence-item {
+	border-left: 2px solid rgba(34, 197, 94, 0.45);
+	padding: 0.35rem 0.7rem;
+	margin: 0.4rem 0;
+}
+
+.evidence-source a {
+	color: #86efac;
+}
+
+.evidence-item blockquote {
+	margin: 0.35rem 0;
+	font-style: italic;
+}
+
+.provenance-details {
+	margin-top: 0.4rem;
+}
+
+.provenance-details dl {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0.15rem 0.6rem;
+	margin: 0.3rem 0;
+	overflow-wrap: anywhere;
+}
+
+.provenance-details dd {
+	margin: 0;
+}
+
 .chat-bubble-error {
 	border-color: rgba(239, 68, 68, 0.7);
 }
@@ -256,10 +339,48 @@ h1 {
 .chat-form {
 	margin-top: auto;
 	display: flex;
-	align-items: center;
+	flex-direction: column;
+	align-items: stretch;
 	gap: 0.75rem;
 	padding-top: 0.75rem;
 	border-top: 1px solid rgba(31, 41, 55, 0.9);
+}
+
+.query-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.6rem 1rem;
+}
+
+.retrieval-option,
+.as-of-option {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+	font-size: 0.82rem;
+}
+
+.query-options select,
+.query-options input {
+	border: 1px solid rgba(148, 163, 184, 0.75);
+	border-radius: 0.45rem;
+	background: #0f172a;
+	color: inherit;
+	font: inherit;
+	padding: 0.4rem;
+}
+
+.as-of-controls {
+	display: flex;
+	gap: 0.4rem;
+}
+
+.query-options small {
+	color: #9ca3af;
+}
+
+.clear-button {
+	padding: 0.3rem 0.7rem;
 }
 
 .chat-form-left {
@@ -267,6 +388,10 @@ h1 {
 	flex: 1;
 	gap: 0.75rem;
 	align-items: stretch;
+}
+
+.chat-form > button[type="submit"] {
+	align-self: flex-end;
 }
 
 .mode-switch {
