@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import List, Tuple
+from typing import Callable, List, Tuple
 
 import tiktoken
 
@@ -32,7 +32,16 @@ def _tail_text(text: str, overlap_tokens: int) -> str:
 	return enc.decode(enc.encode(text)[-overlap_tokens:])
 
 
-def make_chunks(paragraphs: List[str], max_tokens: int = 350, overlap_tokens: int = 40) -> List[Tuple[int, str]]:
+def make_chunks(
+	paragraphs: List[str],
+	max_tokens: int = 350,
+	overlap_tokens: int = 40,
+	*,
+	token_length: Callable[[str], int] | None = None,
+	tail_text: Callable[[str, int], str] | None = None,
+) -> List[Tuple[int, str]]:
+	token_length = token_length or _tok_len
+	tail_text = tail_text or _tail_text
 	chunks: List[Tuple[int, str]] = []
 	if not paragraphs:
 		return chunks
@@ -45,21 +54,21 @@ def make_chunks(paragraphs: List[str], max_tokens: int = 350, overlap_tokens: in
 		if not paragraph:
 			continue
 
-		paragraph_tokens = _tok_len(paragraph)
+		paragraph_tokens = token_length(paragraph)
 		if paragraph_tokens > max_tokens:
 			words = paragraph.split()
 			current_words: List[str] = []
 			current_tokens = 0
 			for word in words:
-				word_tokens = _tok_len((" " if current_words else "") + word)
+				word_tokens = token_length((" " if current_words else "") + word)
 				if current_tokens + word_tokens > max_tokens:
 					if current_words:
 						chunks.append((index, " ".join(current_words)))
 						index += 1
 					if overlap_tokens and chunks:
-						tail = _tail_text(chunks[-1][1], overlap_tokens)
+						tail = tail_text(chunks[-1][1], overlap_tokens)
 						current_words = [tail]
-						current_tokens = _tok_len(tail)
+						current_tokens = token_length(tail)
 					else:
 						current_words = []
 						current_tokens = 0
@@ -75,9 +84,9 @@ def make_chunks(paragraphs: List[str], max_tokens: int = 350, overlap_tokens: in
 			chunks.append((index, "\n\n".join(buffer)))
 			index += 1
 			if overlap_tokens:
-				tail = _tail_text(chunks[-1][1], overlap_tokens)
+				tail = tail_text(chunks[-1][1], overlap_tokens)
 				buffer = [tail] if tail else []
-				buffer_tokens = _tok_len(tail) if tail else 0
+				buffer_tokens = token_length(tail) if tail else 0
 			else:
 				buffer = []
 				buffer_tokens = 0
