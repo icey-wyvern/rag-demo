@@ -39,10 +39,12 @@ class VersionedCorpusStore:
             )
         )
 
-    def get_latest_snapshot(self, source_id: UUID) -> SourceSnapshot | None:
+    def get_latest_snapshot(self, source_id: UUID, as_of: datetime | None = None) -> SourceSnapshot | None:
+        query = select(SourceSnapshot).where(SourceSnapshot.source_id == source_id)
+        if as_of is not None:
+            query = query.where(SourceSnapshot.observed_at <= as_of)
         return self.session.scalar(
-            select(SourceSnapshot)
-            .where(SourceSnapshot.source_id == source_id)
+            query
             .order_by(
                 SourceSnapshot.observed_at.desc(),
                 SourceSnapshot.created_at.desc(),
@@ -50,6 +52,18 @@ class VersionedCorpusStore:
             )
             .limit(1)
         )
+
+    def get_snapshot(self, snapshot_id: UUID) -> SourceSnapshot | None:
+        return self.session.get(SourceSnapshot, snapshot_id)
+
+    def get_source_by_id(self, source_id: UUID) -> Source | None:
+        return self.session.get(Source, source_id)
+
+    def get_passages(self, snapshot_id: UUID) -> list[Passage]:
+        return list(self.session.scalars(
+            select(Passage).where(Passage.snapshot_id == snapshot_id)
+            .order_by(Passage.ordinal.asc())
+        ))
 
     def add_snapshot(
         self,

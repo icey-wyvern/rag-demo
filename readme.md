@@ -88,6 +88,14 @@ Hybrid retrieval combines lexical and semantic ranks with Reciprocal Rank Fusion
 
 With no retrieved Evidence, the service abstains without a model call. The model may also abstain with a reason and no claims. The optional OpenAI adapter uses the configured `GEN_MODEL` and requires `OPENAI_API_KEY`; offline tests use fake providers. Validation establishes genuine retrieved evidence IDs, exact quoted excerpts, and a citation for every returned claim. **It does not prove semantic entailment or factual truth.** This path is internal and is not connected to `/api/query`; the public demo still uses the legacy generator.
 
+## Internal version comparison
+
+`api.version_comparison.VersionComparisonService` resolves two explicit snapshot IDs, a snapshot and its recorded predecessor, or the latest locally observed snapshot at/before each of two timezone-aware cutoffs for one source. Explicit pairs must be given older first; reversed or equal observation times, self comparisons, missing snapshots, and different sources are rejected. The as-of lookup uses the same observation-time ordering (then creation time and ID) as versioned ingestion. If both cutoffs select the same snapshot, comparison is rejected.
+
+`VersionChangeSet` is derived from immutable snapshots; no change rows are stored. At each passage ordinal, equal hashes mean `unchanged`, differing hashes mean `modified`, an ordinal present only in the newer snapshot means `added`, and one only in the older snapshot means `removed`. Changes are ordered by ordinal and include exact older/newer passage text, hashes, IDs, and snapshot observation provenance. Counts include all four classes and both passage totals. A large insertion or chunk-boundary shift can make subsequent ordinal changes look more substantial than the human conceptual edit.
+
+`VersionChangeSummaryService` optionally turns material changes into separate, explicitly labeled older/newer Evidence and reuses `EvidenceFirstAnswerService` for structured claims, prompt-local IDs, exact quote checks, and rejection of fabricated citations. A claim citing a modified passage must cite its older and newer sides. With no material changes it returns “No observed content changes.” without calling the provider. Textual change does **not** establish semantic contradiction; the model is instructed to describe differences and cite both relevant observations for a claimed reversal. The validator does not prove semantic entailment. Fixtures A and B are illustrative curated observations, not verified historical GOV.UK publication versions. This path is internal; `/api/query` and legacy RAG remain unchanged.
+
 Run backend tests:
 
 ```bash

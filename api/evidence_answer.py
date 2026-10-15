@@ -103,11 +103,14 @@ def assign_evidence_ids(evidence: Sequence[Evidence]) -> dict[str, Evidence]:
     return {f"E{index}": item for index, item in enumerate(evidence, start=1)}
 
 
-def format_evidence(evidence_map: dict[str, Evidence]) -> str:
+def format_evidence(
+    evidence_map: dict[str, Evidence], *,
+    evidence_context: dict[str, dict[str, str | int]] | None = None,
+) -> str:
     """Stable JSON blocks keep source text distinct from application instructions."""
     blocks = []
     for evidence_id, item in evidence_map.items():
-        blocks.append(json.dumps({
+        block = {
             "evidence_id": evidence_id,
             "source_title": item.source_title,
             "canonical_url": item.canonical_url,
@@ -115,7 +118,10 @@ def format_evidence(evidence_map: dict[str, Evidence]) -> str:
             "source_published_at": item.source_published_at.isoformat() if item.source_published_at else None,
             "source_updated_at": item.source_updated_at.isoformat() if item.source_updated_at else None,
             "passage_text": item.text,
-        }, ensure_ascii=False, sort_keys=True))
+        }
+        if evidence_context is not None:
+            block["version_change"] = evidence_context.get(evidence_id, {})
+        blocks.append(json.dumps(block, ensure_ascii=False, sort_keys=True))
     return "\n".join(blocks)
 
 
@@ -123,14 +129,21 @@ class EvidenceFirstAnswerService:
     def __init__(self, provider: AnswerGenerationProvider):
         self.provider = provider
 
-    def answer(self, question: str, evidence: Sequence[Evidence]) -> AnswerResult:
+    def answer(
+        self, question: str, evidence: Sequence[Evidence], *,
+        evidence_context: dict[str, dict[str, str | int]] | None = None,
+        additional_instructions: str = "",
+    ) -> AnswerResult:
         if not isinstance(question, str) or not question.strip():
             raise ValueError("question must be non-empty")
         evidence_map = assign_evidence_ids([item for item in evidence if item.text.strip()])
         if not evidence_map:
             return AnswerResult("abstained", (), NO_EVIDENCE_REASON)
         try:
-            raw = self.provider.generate(question.strip(), format_evidence(evidence_map), INSTRUCTIONS)
+            raw = self.provider.generate(
+                question.strip(), format_evidence(evidence_map, evidence_context=evidence_context),
+                INSTRUCTIONS + (" " + additional_instructions if additional_instructions else ""),
+            )
         except AnswerProviderError:
             raise
         except Exception as exc:

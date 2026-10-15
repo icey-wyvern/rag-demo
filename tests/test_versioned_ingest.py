@@ -254,6 +254,15 @@ class VersionedStoreTests(unittest.TestCase):
             sql,
         )
 
+    def test_latest_snapshot_as_of_uses_observation_time(self):
+        session = Mock()
+        cutoff = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        VersionedCorpusStore(session).get_latest_snapshot(UUID(int=7), cutoff)
+        statement = session.scalar.call_args.args[0]
+        sql = str(statement.compile(dialect=postgresql.dialect()))
+        self.assertIn("source_snapshots.observed_at <=", sql)
+        self.assertIn(cutoff, statement.compile().params.values())
+
 
 if __name__ == "__main__":
     unittest.main()
