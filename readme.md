@@ -1,162 +1,107 @@
-# GOV.UK RAG Demo
+# Version-aware GOV.UK guidance RAG
 
-A retrieval-augmented generation demo over locally observed GOV.UK guidance versions. The stack is FastAPI, PostgreSQL with pgvector, React, and the OpenAI API.
+[![CI](https://github.com/icey-wyvern/rag-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/icey-wyvern/rag-demo/actions/workflows/ci.yml)
 
-## Features
+A version-aware, evidence-first retrieval and answer system for evolving GOV.UK guidance. It stores immutable versions as they are observed locally, retrieves eligible passages using PostgreSQL full-text search, pgvector cosine search, or hybrid rank fusion, and returns claim-level answers with cited passages and exact supporting quotes. The application validates citation IDs and quotes before returning an answer. It can abstain when evidence is unavailable or the provider requests abstention; invalid generated output is rejected.
 
-- Temporal lexical, semantic, and hybrid retrieval over versioned guidance passages
-- Evidence-first answers with validated quotations and links to cited sources
-- Passage inspection mode for debugging retrieval quality
-- Versioned-corpus readiness/status reporting
-- Single-command local startup with Docker Compose
+The repository includes separate retrieval, generation/evidence, and hostile-content evaluations. A disposable PostgreSQL/pgvector suite exercises migrations, persistence, retrieval, and the HTTP query path with deterministic fake model providers.
 
-## Local development
+## Core capabilities
 
-1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY`.
-2. Start PostgreSQL and the API/UI:
+- **Version-aware ingestion:** a stable source identity links immutable observed snapshots and passages. Repeated identical observations do not create duplicate snapshots; changed observations retain their predecessor.
+- **Observed-as-of retrieval:** each source contributes its latest snapshot observed by a timezone-aware cutoff. This is the latest version **this corpus had observed** at or before that time. It does not reconstruct authoritative GOV.UK state at arbitrary historical dates.
+- **Three retrieval modes:** Lexical uses PostgreSQL English full-text search; Semantic uses stored embeddings and pgvector cosine distance; Hybrid combines their ranks with reciprocal rank fusion (RRF, constant 60). Hybrid is the API and UI default.
+- **Evidence-first answers:** application-owned prompt-local IDs identify retrieved passages. Every answered claim needs a citation whose ID exists and whose exact supporting quote occurs in that passage. Missing citations, invented IDs, invalid quotes, and malformed output fail closed. Exact-quote validation checks reference integrity, not semantic entailment or universal truth.
+- **Explicit abstention:** no retrieved evidence produces a deterministic abstention without a generation call; the provider can also request abstention with a reason.
+- **Hostile-content boundary:** questions and source content are untrusted data, serialized separately from fixed application instructions. Validation remains authoritative after generation. This reduces risk; it does not make a model immune to prompt injection.
+- **Change intelligence:** an internal service compares two observed snapshots of one source and retains older/newer provenance. It classifies passages as unchanged, added, removed, or modified and can request an evidence-bound summary. Textual differences are not automatically semantic contradictions.
 
-```bash
-docker compose up --build -d db webapi
+See [architecture](docs/architecture.md), [evaluation and validation scope](docs/evaluation.md), and the [demo walkthrough](docs/demo.md).
+
+## Verify without API credentials
+
+These commands use fixtures and fake providers. They do not require an OpenAI key, Azure account, or live GOV.UK request. Run them from the repository root with the existing repository-local `.venv` and frontend dependencies.
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+.\.venv\Scripts\python.exe -m api.security_eval
+.\.venv\Scripts\python.exe -m api.generation_eval_cli
 ```
 
-3. Apply the application schema and populate the versioned guidance corpus:
-
-```bash
-docker compose run --rm webapi alembic upgrade head
-docker compose run --rm webapi python -m api.govuk_ingest_cli
-docker compose run --rm webapi python -m api.passage_embedding_cli
+```powershell
+Set-Location web
+npm run test
+npm run build
+npm run lint
+Set-Location ..
 ```
 
-4. Open `http://localhost:8080`.
+With Docker Desktop running, exercise the **real** isolated PostgreSQL/pgvector path:
 
-`webapi` serves the UI immediately. The UI polls versioned-corpus status and unlocks its default hybrid queries after current passages, matching embeddings, and an OpenAI provider configuration exist. Alembic owns application tables, indexes, and constraints; PostgreSQL initialization only creates the application role and required `vector` extension.
-
-PostgreSQL runs locally through Docker Compose. Versioned acquisition calls the GOV.UK Content API, and embedding/indexing and generated queries use OpenAI; this deployment path has not been live validated in this slice. Lexical passage queries can run without embeddings if versioned passages exist, and the UI enables Lexical when those passages are ready.
-
-## Schema migrations
-
-Apply the application schema used by `/api/query`:
-
-```bash
-docker compose run --rm webapi alembic upgrade head
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run-postgres-integration.ps1
 ```
 
-The cleanup migration removes obsolete `corpus_state`, `documents`, and `chunks` tables and their data while preserving versioned tables. Existing installations whose old tables were created by the PostgreSQL bootstrap may need a database owner to apply that migration; review legacy data and ownership first. Downgrading recreates the old table structure, not its deleted rows.
+The execution-policy bypass applies only to that PowerShell process; it does not change the machine-wide policy. The runner starts the dedicated `integration-db` service from `docker-compose.integration.yaml` with test-only credentials, a separate Compose project, and disposable tmpfs storage. It refuses to reuse an existing test container, never uses the normal `appdb` volume, and removes its own container/network afterward. Ordinary backend discovery safely skips database tests when `RAG_TEST_DATABASE_URL` is absent.
 
-## Optional versioned GOV.UK acquisition
+The generation fixture deliberately includes two validly cited responses using the wrong source or snapshot. Its `13/15` contract pass result is a diagnostic fixture result, **not** live-model accuracy. See [evaluation](docs/evaluation.md) for the metric definitions.
 
-After applying the Alembic schema, `python -m api.govuk_ingest_cli` fetches the three configured Service Standard guidance paths in `api/govuk_sources.py` through the GOV.UK Content API. This command populates the versioned corpus read by `/api/query`.
+## Run the full application
 
-The Content API's `content_id` supplies stable logical identity. The command extracts guidance body text, then the versioned ingestion service hashes those exact normalized UTF-8 bytes. Each differing observation becomes an immutable local snapshot; an identical observation is unchanged. Source publication/update timestamps are kept separate from the time we observed the response. This does not provide arbitrary historical GOV.UK bodies: local history grows only as differing responses are observed.
+This path uses live GOV.UK acquisition and OpenAI embedding/generation adapters. It requires Docker and a configured OpenAI key. Do not use these commands as part of credential-free verification.
 
-The small fixtures under `tests/fixtures` use trimmed fields and guidance text from a public Content API response observed on 15 October 2026. The two bodies are curated subsets for deterministic change tests, not a claim that both were historically published as shown or authoritative current content. Tests use these fixtures without network access. The configured paths have not all been live validated.
+1. Copy `.env.example` to `.env` and replace the placeholder `OPENAI_API_KEY`. The tracked example contains no real credentials.
+2. Start PostgreSQL and the API container. The Docker build also builds the React/TypeScript frontend; FastAPI serves those assets, so this command starts both backend and UI.
 
-## Versioned lexical retrieval and evaluation
+   ```powershell
+   docker compose up --build -d db webapi
+   ```
 
-`api.versioned_retriever.VersionedRetriever` searches the versioned corpus used by `/api/query`. Its lexical baseline uses PostgreSQL English full-text search (`websearch_to_tsquery`, `to_tsvector`, `ts_rank_cd`) over `passages`, with visible scores and a GIN expression index.
+3. Apply Alembic migrations. PostgreSQL initialization creates the application role and `vector` extension; **Alembic owns application tables, indexes, and constraints**.
 
-Without `as_of`, each source contributes only its latest locally observed snapshot. With a timezone-aware `as_of`, each contributes its latest snapshot observed at or before that time. Ties use snapshot creation time and ID. This reconstructs what this corpus had observed, not arbitrary historical GOV.UK state. Source publication/update times are provenance, not eligibility cutoffs.
+   ```powershell
+   docker compose run --rm webapi alembic upgrade head
+   ```
 
-After populating the versioned PostgreSQL corpus, run `python -m api.retrieval_eval_cli` for the small current-source dataset, or pass `--dataset PATH` for a corpus-specific dataset. The separate `eval/fixture_retrieval_cases.json` has seven deterministic scenarios, including illustrative observations A and B at 15 and 16 October 2026. It requires a matching isolated fixture corpus for a meaningful database run; its two bodies are not verified historical publications. The evaluator reports Recall@1, Recall@3, and MRR over cases with expected evidence; cases expecting none pass only when retrieval returns no results and have a separate accuracy. Temporal accuracy covers `as_of` cases, including expected absence. Failed case IDs are reported. No benchmark number is claimed here.
+4. Acquire the configured guidance through the live GOV.UK Content API, then create passage embeddings through OpenAI. These are explicit, opt-in commands; nothing polls for changes automatically.
 
-## Opt-in versioned passage embeddings
+   ```powershell
+   docker compose run --rm webapi python -m api.govuk_ingest_cli
+   docker compose run --rm webapi python -m api.passage_embedding_cli
+   ```
 
-`passage_embeddings` stores derived vectors separately from immutable passage text and hashes. Each row belongs to one passage and one provider/model pair, so reruns skip existing vectors and a different model can coexist without replacing history. The current column is `vector(1536)` and the indexer rejects other dimensions; this supports the configured `text-embedding-3-small` default, not arbitrary vector sizes.
+5. Open `http://localhost:8080`. The UI uses `/api/status` readiness. Lexical retrieval needs versioned passages; Hybrid and Semantic also need matching stored embeddings and a query embedding provider. Generated queries use the configured OpenAI answer provider.
 
-After applying Alembic migrations and ingesting versioned passages, run `python -m api.passage_embedding_cli` with a configured `OPENAI_API_KEY`. The command uses the configured `EMBED_MODEL`, indexes missing passages in batches, and reports already indexed, newly indexed, and remaining counts. Each batch commits atomically; a failed batch rolls back while earlier batches remain. This makes OpenAI calls when run. Matching embeddings are needed by `/api/query` in its default hybrid or explicit semantic mode; lexical mode can run without them.
+The configured acquisition paths are in `api/govuk_sources.py`. Local history grows as differing responses are observed; source publication/update timestamps are retained as provenance and do not set temporal eligibility. The curated observation A/B fixtures are illustrative test data, not verified historical GOV.UK publication versions. This full live deployment flow has not been end-to-end validated here; the database/query stack has been validated with fake providers.
 
-## Internal retrieval modes
-
-The versioned retriever accepts `mode="lexical"`, `"semantic"`, or `"hybrid"`. All modes select the same latest locally observed snapshot per source, with the same optional observed-as-of cutoff described above. Semantic retrieval embeds the question through the configured provider, searches only stored embeddings for that provider/model, and orders eligible passages by exact pgvector cosine distance (`<=>`); its Evidence score is **distance, lower is better**. No ANN index is added yet: corpus scale and index tuning have not been measured.
-
-Hybrid retrieval combines lexical and semantic ranks with Reciprocal Rank Fusion, `sum(1 / (60 + rank))`, rather than mixing their incomparable raw scores. Each component requests `min(60, 3 × final K)` candidates; the final Evidence score is an RRF score, higher is better, with both component ranks when present. Its two database rankings share one repeatable-read snapshot so concurrent ingestion cannot mix versions. Run `python -m api.retrieval_eval_cli --mode all` against a populated local corpus to compare the same cases and metrics. The CLI also accepts `lexical`, `semantic`, or `hybrid` individually. Semantic and hybrid modes call the configured query embedding provider, so they require its API key when using OpenAI. Fake-vector tests check mechanics, not semantic quality; real benchmark numbers require a populated corpus and real provider run.
-
-## Internal evidence-first answers
-
-`api.versioned_answer.VersionedAnswerService` can compose the internal retriever with `EvidenceFirstAnswerService`. The service assigns prompt-local IDs (`E1`, `E2`, ...), sends provenance and passage text as clearly delimited reference material, and requests structured claims or an abstention. It resolves each citation against the supplied Evidence and requires a non-empty, exact quotation present in that passage. Duplicate identical citations are collapsed. Any invalid claim rejects the whole answer; the human-readable answer is assembled only from accepted claims.
-
-With no retrieved Evidence, the service abstains without a model call. The model may also abstain with a reason and no claims. The OpenAI adapter uses the configured `GEN_MODEL` and requires `OPENAI_API_KEY`; offline tests use fake providers. Validation establishes genuine retrieved evidence IDs, exact quoted excerpts, and a citation for every returned claim. **It does not prove semantic entailment or factual truth.** `/api/query` uses this service for generated answers.
-
-## Internal version comparison
-
-`api.version_comparison.VersionComparisonService` resolves two explicit snapshot IDs, a snapshot and its recorded predecessor, or the latest locally observed snapshot at/before each of two timezone-aware cutoffs for one source. Explicit pairs must be given older first; reversed or equal observation times, self comparisons, missing snapshots, and different sources are rejected. The as-of lookup uses the same observation-time ordering (then creation time and ID) as versioned ingestion. If both cutoffs select the same snapshot, comparison is rejected.
-
-`VersionChangeSet` is derived from immutable snapshots; no change rows are stored. At each passage ordinal, equal hashes mean `unchanged`, differing hashes mean `modified`, an ordinal present only in the newer snapshot means `added`, and one only in the older snapshot means `removed`. Changes are ordered by ordinal and include exact older/newer passage text, hashes, IDs, and snapshot observation provenance. Counts include all four classes and both passage totals. A large insertion or chunk-boundary shift can make subsequent ordinal changes look more substantial than the human conceptual edit.
-
-`VersionChangeSummaryService` optionally turns material changes into separate, explicitly labeled older/newer Evidence and reuses `EvidenceFirstAnswerService` for structured claims, prompt-local IDs, exact quote checks, and rejection of fabricated citations. A claim citing a modified passage must cite its older and newer sides. With no material changes it returns “No observed content changes.” without calling the provider. Textual change does **not** establish semantic contradiction; the model is instructed to describe differences and cite both relevant observations for a claimed reversal. The validator does not prove semantic entailment. Fixtures A and B are illustrative curated observations, not verified historical GOV.UK publication versions. Change summaries remain an internal service; `/api/query` serves ordinary evidence-bound answers.
-
-## Hostile source content in internal answers
-
-The question, passage text, titles, and URLs are untrusted input. Application-owned instruction profiles are sent as system instructions; the provider's user message is one JSON object with a `question` string and an `evidence` array. Each evidence record is serialized by the JSON library with a prompt-local application-assigned ID, separate metadata, and unmodified passage text. Role-looking strings, markup, quotes, and newlines inside source text remain data. Version-change summaries use this same serializer with application-owned older/newer labels.
-
-The provider receives the selected question, evidence, fixed instructions, and structured-output settings; credentials are used only to configure the provider client and are not placed in prompt messages. After generation, the application rejects unknown IDs, missing citations, absent or altered quotes, malformed output, and contradictory status. The deterministic `tests/fixtures/hostile_evidence_cases.json` dataset and `python -m api.security_eval` exercise these rules with fake providers, including a valid answer *about* hostile-looking text. Keyword stripping is not the primary defence because it would delete legitimate source content and would not enforce the output contract. This is risk reduction and mechanical contract enforcement, not proof that a model is immune to prompt injection or that cited claims are true.
-
-## Separate evaluation layers
-
-Retrieval evaluation measures whether relevant versioned evidence was found (Recall@K, MRR, and observed-as-of accuracy). `python -m api.generation_eval_cli` instead runs the reviewable `eval/generation_cases.json` cases through the real internal answer and version-change services with fake providers and pre-supplied Evidence. `python -m api.security_eval` remains a separate adversarial boundary regression suite. None of these metrics is combined into one score. The generation CLI is entirely offline and its numbers are fixture results, not live-model benchmarks.
-
-The generation report distinguishes answered, abstained, and rejected. Status accuracy counts exact status matches; abstention accuracy covers cases expected to answer or abstain, with separate correct-abstention, incorrect-abstention, and incorrect-answer counts. Citation coverage is cited claims divided by accepted answered claims. Citation validity is validated citations divided by citations returned in accepted answers; both normally equal 1 because invalid answers are rejected before a result exists. Expected-evidence accuracy checks whether **all** required provenance selectors were cited (or **any** when a case explicitly requests that mode). Selectors can specify source key, snapshot ID/hash, and passage ID/hash. Temporal accuracy requires exactly the expected cited snapshot set and, for an `as_of` case, observation times no later than that cutoff. A version-change case runs through the real change summary service, including its older/newer citation rule. Metrics with no eligible cases are `null`.
-
-The dataset deliberately includes validly cited answers using the wrong source or observation; these fail expected-evidence or temporal checks while citation validity stays intact. Because the runner receives evidence directly, it reports evidence-selection and version diagnostics, **not** retrieval failures. Its `as_of` field is evaluation context: it does not run retrieval, and historical wording means what this local corpus had observed by that time, not a verified historical GOV.UK publication. The fixtures are synthetic or illustrative. This framework checks application behaviour, citation contracts, required evidence use, and expected rejections; it does not prove semantic entailment, objective truth, answer completeness, or style. No LLM judge or external model call is used.
+**Existing database caution:** migration `20261015_04` drops obsolete `corpus_state`, `documents`, and `chunks` tables and their rows, leaving versioned tables intact. Existing installations whose old tables were created by PostgreSQL bootstrap SQL may need a database owner to apply that migration. Review old data and ownership before upgrading; downgrade restores table structure, not deleted rows.
 
 ## Public query API
 
-The UI uses Hybrid retrieval by default; its selector also offers Semantic and Lexical. An optional local date/time is converted to a timezone-aware observed-as-of instant before the request. This selects the latest version the local corpus had observed by that time, not a guaranteed historical GOV.UK state. Generated answers display validated claims with their exact cited quotes, source links, observation times, and available source update times. Abstention is shown explicitly without supporting-source cards. Chunks only remains available to inspect retrieved passages; those passages are labeled as retrieval results, not answer citations.
-
-`POST /api/query` accepts the existing `{ "q": "...", "mode": "generate" | "chunks" }` request (or `question` instead of `q`). `retrieval_mode` defaults to `hybrid` and also accepts `lexical` or `semantic`; `k` defaults to 5. Optional `as_of` must include a timezone and selects the latest version this corpus had observed at or before that instant. Invalid options get a 4xx response. Hybrid/semantic requests fail clearly if the matching semantic index is unavailable; there is no silent lexical fallback.
-
-Generated queries run versioned retrieval followed by evidence-first structured generation and exact citation/quote validation. The response retains the frontend's `answer`, `citations` (source links with `title`, `url`, `page`), and `chunks` (retrieved passage snippets). It adds `status`, validated `claims`, cited `sources`, passage/snapshot provenance, and small retrieval metadata. Source links come only from cited passages, deduplicated by snapshot/passage; `chunks` are explicitly retrieval inspection data. Abstention returns HTTP 200 with a usable reason and no source links. Chunks mode retrieves versioned passages without calling the generation provider. Provider, validation, and retrieval failures return sanitized errors rather than raw exception text.
-
-`/api/status` keeps the frontend's readiness fields and reports versioned table state, current passage availability, matching OpenAI embedding availability, and provider configuration. A missing versioned schema reports pending; an unavailable database returns 503. Fast HTTP tests inject fake retrievers and providers; the opt-in PostgreSQL suite below exercises the real database path.
-
-## PostgreSQL integration tests
-
-Fast tests use the repository environment and need no database:
+`POST /api/query` accepts `q` (or `question`), `mode` (`generate` or `chunks`), `retrieval_mode` (`hybrid`, `semantic`, or `lexical`), optional timezone-aware `as_of`, and `k` (1–20, default 5). The defaults are generated answers and Hybrid retrieval. A naive `as_of` is rejected. `chunks` mode returns retrieved passages for inspection without invoking generation.
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests
+$uri = "http://localhost:8080/api/query"
+Invoke-RestMethod -Method Post -Uri $uri -ContentType "application/json" -Body (@{ q = "What does the observed guidance say about user needs?" } | ConvertTo-Json -Compress)
+Invoke-RestMethod -Method Post -Uri $uri -ContentType "application/json" -Body (@{ q = "What does the observed guidance say about user needs?"; retrieval_mode = "lexical" } | ConvertTo-Json -Compress)
+Invoke-RestMethod -Method Post -Uri $uri -ContentType "application/json" -Body (@{ q = "What guidance had this corpus observed?"; retrieval_mode = "lexical"; as_of = "2026-10-15T12:00:00+00:00" } | ConvertTo-Json -Compress)
 ```
 
-On Windows, with an already available Docker engine and repository-local `.venv`, run the isolated suite with:
+The timestamp is an **illustrative cutoff**, not a claim that a particular source version exists at that time. A generated response has `status` (`answered` or `abstained`), `answer`, `claims` with cited quotes when answered, cited `sources`/`citations`, retrieval-inspection `chunks`, and small `retrieval` metadata. Abstention is HTTP 200 with a reason and no supporting source links. Invalid generated answers are rejected with a sanitized error rather than returned as valid answers. Retrieved chunks are never presented as answer citations.
 
-```powershell
-.\run-postgres-integration.ps1
-```
+The UI offers Hybrid, Semantic, and Lexical selection; an optional local observed-as-of control; generated answers with expandable provenance; explicit abstention; and Chunks only mode for inspecting retrieval. See the [walkthrough](docs/demo.md).
 
-The runner uses `docker-compose.integration.yaml` with the repository's `pgvector/pgvector:pg16` image. It starts only `integration-db` under the separate `gvt-rag-integration` Compose project, with test-only credentials, a loopback-only port, and tmpfs storage. It refuses to reuse an existing integration container and removes only its own service after the tests. The normal `db` service, `appdb`, and `db-data` volume are never used. The tests require an explicit `RAG_TEST_DATABASE_URL`, verify its test-only name/user/host/password and the connected database identity, and refuse a nonempty database before creating the vector extension or migrating. Without that variable, database tests skip under ordinary discovery.
+## Repository layout
 
-The integration suite runs Alembic from empty to HEAD, down to base, and back to HEAD before inserting fixtures. It checks that obsolete tables are absent at HEAD, versioned tables and constraints exist, and the lexical GIN index and `vector(1536)` remain; then it exercises real versioned ingestion, idempotent fake-vector indexing, PostgreSQL full-text search, pgvector cosine ranking, RRF, temporal snapshot selection, readiness, and in-process `/api/query` responses. All content and model responses are deterministic local fixtures. It makes no OpenAI, Azure, or GOV.UK application calls. This validates persistence and query wiring, not live provider behaviour or the factual quality of a generated answer. The dedicated CI job runs the same suite against a fresh `pgvector/pgvector:pg16` service without application secrets.
+| Path | Purpose |
+| --- | --- |
+| `api/` | FastAPI wiring, acquisition, versioned persistence/retrieval, evidence-first generation, comparison, and evaluators |
+| `migrations/` and `initdb/` | Alembic application schema and minimal PostgreSQL bootstrap |
+| `eval/` | Reviewable retrieval and generation fixture datasets |
+| `tests/integration/` | Disposable real PostgreSQL/pgvector migration, query, and API tests |
+| `web/` | React/TypeScript UI built into the API container |
+| `docs/` | Architecture, evaluation, and demonstration guides |
 
-Run backend tests:
+## Validation scope
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests
-```
-
-Install frontend dependencies from the tracked lockfile and run checks:
-
-```bash
-cd web
-npm ci
-npm run build
-npm run test
-```
-
-## Architecture
-
-- `api/main.py`: FastAPI endpoints and versioned readiness/dependency wiring
-- `api/query_service.py`: versioned retrieval, evidence-first generation, and response serialization
-- `api/versioned_ingest.py`, `api/versioned_store.py`: immutable source snapshots and passages
-- `api/versioned_retriever.py`, `api/evidence_answer.py`: temporal retrieval and validated generation
-- `migrations/`: Alembic-owned application schema
-- `web/src`: status-aware chat UI
-
-## Operational notes
-
-- `GET /health` reports API health and corpus state.
-- `GET /api/status` reports versioned-corpus readiness for the UI.
-- `POST /api/query` returns `503` if versioned passages or requested semantic prerequisites are unavailable.
-
-## Notes
-
-- Versioned schema migration, GOV.UK acquisition, and passage embeddings are explicit setup steps above.
+Real PostgreSQL/pgvector integration has passed locally and in [hosted GitHub Actions](https://github.com/icey-wyvern/rag-demo/actions/workflows/ci.yml): Alembic migration cycles, immutable ingestion, embedding persistence, PostgreSQL full-text search, cosine retrieval, Hybrid RRF, temporal selection, readiness, and `/api/query`. Structured generation, citation checks, abstention, and hostile-content cases use deterministic fake providers. No production-scale traffic, arbitrary historical GOV.UK reconstruction, semantic entailment verification, live Azure validation, or prompt-injection immunity is claimed.
