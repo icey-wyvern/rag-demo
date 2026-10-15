@@ -1,0 +1,12 @@
+{
+  "content_id": "2b578bcd-775b-45d0-8198-e78507594b9c",
+  "base_path": "/service-manual/service-standard/point-2-solve-a-whole-problem",
+  "title": "2. Solve a whole problem for users",
+  "schema_name": "service_manual_guide",
+  "document_type": "service_manual_guide",
+  "first_published_at": "2019-05-08T09:29:12+01:00",
+  "public_updated_at": "2026-01-29T13:48:49+00:00",
+  "details": {
+    "body": "<h2>Why it’s important</h2><p>Services that do not work well with other related services make it hard for users to do what they need to.</p><h2>What it means</h2><p>Service teams should:</p><ul><li>understand any genuine constraints that affect the service - for example, legislative constraints - and work with policy professionals to solve any problems those constraints are causing</li><li>check if the problem you’re trying to solve has been solved by anyone else, and reuse existing solutions where possible (including emerging technologies and AI)</li></ul>"
+  }
+}

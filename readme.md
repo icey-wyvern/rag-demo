@@ -54,6 +54,14 @@ Apply the additive versioned corpus schema (not yet used by the API):
 docker compose run --rm webapi alembic upgrade head
 ```
 
+## Optional versioned GOV.UK acquisition
+
+After applying the Alembic schema, `python -m api.govuk_ingest_cli` fetches the three configured Service Standard guidance paths in `api/govuk_sources.py` through the GOV.UK Content API. This command is separate from the legacy PDF ingestion and is not used by `/api/query`.
+
+The Content API's `content_id` supplies stable logical identity. The command extracts guidance body text, then the versioned ingestion service hashes those exact normalized UTF-8 bytes. Each differing observation becomes an immutable local snapshot; an identical observation is unchanged. Source publication/update timestamps are kept separate from the time we observed the response. This does not provide arbitrary historical GOV.UK bodies: local history grows only as differing responses are observed.
+
+The small fixtures under `tests/fixtures` use trimmed fields and guidance text from a public Content API response observed on 15 October 2026. The two bodies are curated subsets for deterministic change tests, not a claim that both were historically published as shown or authoritative current content. Tests use these fixtures without network access. The configured paths have not all been live validated.
+
 Run backend tests:
 
 ```bash
